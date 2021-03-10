@@ -1,2 +1,2 @@
 *.idea
-datasets/*
+datasets/*.hdf5
