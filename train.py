@@ -117,8 +117,17 @@ def main():
     run_name = f"{args.algo}-{args.seed}"
 
     # Initial environment
-    env, dataset = load_d4rl_dataset(args.env)
-
+    if 'Safexp' in args.env:
+        import safety_gym
+        env = gym.make(args.env)
+        # hardcoded for now
+        dataset_path = 'datasets/ppo_lagrangian_pointgoal1-30000.hdf5'
+        dataset = get_safetygym_dataset(dataset_path)
+        dataset = qlearning_dataset(env, dataset)
+    else:
+        env, dataset = load_d4rl_dataset(args.env)
+    from ipdb import set_trace
+    set_trace()
     # use all batch data for model-free methods
     if args.algo in ['sac', 'cql']:
         args.real_ratio = 1.0

@@ -11,6 +11,7 @@ class PredictEnv:
     def _termination_fn(self, env_name, obs, act, next_obs):
         prefix = env_name.split('-')[0]
         # TODO: need to figure out how to implement these for safety-gym environments
+        # Jason: It appears that safety-gym only terminates on time-out
         if env_name == "Hopper-v2" or prefix == 'hopper' or prefix == 'Hopper':
             assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
@@ -43,6 +44,10 @@ class PredictEnv:
                         * (angle < 1.0)
             done = ~not_done
             done = done[:,None]
+            return done
+        else:
+            done = np.array([False]).repeat(len(obs))
+            done = done[:, None]
             return done
 
     def step(self, obs, act, deterministic=False, reward_penalty=1, algo='gambol'):
