@@ -50,7 +50,7 @@ class PredictEnv:
             done = done[:, None]
             return done
 
-    def step(self, obs, act, deterministic=False, reward_penalty=1, algo='gambol'):
+    def step(self, obs, act, deterministic=False, reward_penalty=1, cost_penalty=1, algo='gambol'):
         assert len(obs.shape) == 2
         if len(obs.shape) == 1:
             obs = obs[None]
@@ -63,12 +63,12 @@ class PredictEnv:
         ensemble_model_means, ensemble_model_vars = self.model.predict(inputs)
 
         ensemble_model_means[:,:,self.model.reward_size:] += obs
-        ensemble_model_stds = torch.sqrt(ensemble_model_vars)
+        ensemble_model_stds = np.sqrt(ensemble_model_vars)
 
         if deterministic:
             ensemble_samples = ensemble_model_means
         else:
-            ensemble_samples = ensemble_model_means + torch.randn(size=ensemble_model_means.shape) * ensemble_model_stds
+            ensemble_samples = ensemble_model_means + np.random.normal(size=ensemble_model_means.shape) * ensemble_model_stds
 
         num_models, batch_size, _ = ensemble_model_means.shape
 
@@ -84,12 +84,25 @@ class PredictEnv:
         rewards, next_obs = samples[:,:self.model.reward_size], samples[:,self.model.reward_size:]
         terminals = self._termination_fn(self.env_name, obs, act, next_obs)
 
-        # MOPO soft penalty
-        if reward_penalty != 0 and algo == 'mopo':
+        if 'mopo' in algo and reward_penalty != 0:
             penalty = np.amax(np.linalg.norm(ensemble_model_stds, axis=2), axis=0)
             penalty = np.expand_dims(penalty, 1)
+
+            penalty = np.repeat(penalty, self.model.reward_size, axis=1)
+            if self.model.reward_size != 1:
+                if algo == 'mopo':
+                    penalty[:, 1] = -1 * penalty[:, 1] * cost_penalty
+                elif algo == 'moporo':
+                    penalty[:, 1] = 0
+                else:
+                    raise NotImplementedError
+            assert penalty.shape == rewards.shape
+
+            # wandb.log({'penalty_std': penalty.std(),
+            #            'penalty_mean': penalty.mean()})
+
             penalized_rewards = rewards - reward_penalty * penalty
-            info = {}
+            info = {'cost_penalty': -1 * penalty * cost_penalty}
         else:
             penalized_rewards = rewards
             info = {}

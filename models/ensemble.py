@@ -153,7 +153,7 @@ class ProbEnsemble(nn.Module):
         return train_loss
 
     def train(self, inputs, targets, batch_size=256, holdout_ratio=0.2,
-              max_logging=5000, max_epochs_since_update=5, max_epochs=50):
+              max_logging=5000, max_epochs_since_update=5, max_epochs=None):
 
         self._max_epochs_since_update = max_epochs_since_update
         self._snapshots = {i: (None, 1e10) for i in range(self.num_nets)}

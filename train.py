@@ -20,9 +20,6 @@ def readParser():
     parser.add_argument('--algo', default="sac",
         help='Must be one of mopo, gambol, sac, cql')
 
-    parser.add_argument('--pretrained', dest='pretrained', action='store_true')
-    parser.set_defaults(pretrained=False)
-
     # Lagrangian + MBRL hyperparameters
     parser.add_argument('--use_constraint', dest='feature', action='store_true')
     parser.add_argument('--no_use_constraint', dest='use_constraint', action='store_false')
@@ -37,12 +34,15 @@ def readParser():
         help='number of cost functions')
     parser.add_argument('--learn_cost', dest='learn_cost', action='store_true')
     parser.add_argument('--no_learn_cost', dest='learn_cost', action='store_false')
-    parser.set_defaults(learn_cost=False)
+    parser.set_defaults(learn_cost=True)
     parser.add_argument('--fixed_lamb', dest='fixed_lamb', action='store_true')
     parser.add_argument('--no_fixed_lamb', dest='fixed_lamb', action='store_false')
     parser.set_defaults(fixed_lamb=False)
     parser.add_argument('--lamb', type=float, default=1.0,
         help='Lagrangian multiplier')
+    parser.add_argument('--entropy_tuning', dest='entropy_tuning', action='store_true')
+    parser.add_argument('--no_entropy_tuning', dest='entropy_tuning', action='store_false')
+    parser.set_defaults(entropy_tuning=True)
     parser.add_argument('--rollout_length', type=int, default=5, metavar='A',
                         help='rollout length')
     parser.add_argument('--seed', type=int, default=0, metavar='N',
@@ -59,7 +59,7 @@ def readParser():
     parser.add_argument('--epoch_length', type=int, default=1000, metavar='A',
                     help='steps per epoch')
 
-    parser.add_argument('--num_epoch', type=int, default=500, metavar='A',
+    parser.add_argument('--num_epoch', type=int, default=1000, metavar='A',
                     help='total number of epochs')
     parser.add_argument('--real_ratio', type=float, default=0.05, metavar='A',
                     help='ratio of env samples / model samples')
@@ -119,17 +119,18 @@ def train(args, env_sampler, predict_env, agent, env_pool, model_pool):
         rewards_std = np.std(rewards, axis=0)
         print("")
         print(f'Epoch {epoch_step} Eval_Reward {rewards_avg[0]:.2f} Eval_Cost {rewards_avg[1]:.2f}')
-        wandb.log({'epoch':epoch_step,
-                   'eval_reward': rewards_avg[0],
-                   'eval_cost': rewards_avg[1],
-                   'reward_std': rewards_std[0],
-                   'cost_std': rewards_std[1]})
+        wandb.log({'Eval/epoch':epoch_step,
+                   'Eval/eval_reward': rewards_avg[0],
+                   'Eval/eval_cost': rewards_avg[1],
+                   'Eval/reward_std': rewards_std[0],
+                   'Eval/cost_std': rewards_std[1]})
 
 
 def main():
     args = readParser()
 
     run_name = f"{args.algo}-{args.seed}"
+    args.run_name = run_name
 
     # Initial environment
     if 'Safexp' in args.env:
@@ -145,15 +146,6 @@ def main():
     # use all batch data for model-free methods
     if args.algo in ['sac', 'cql']:
         args.real_ratio = 1.0
-
-    # hack
-    args.entropy_tuning = True
-
-    wandb.init(project='safety-gym',
-               group=args.env,
-               name=run_name,
-               config=args)
-    args.run_name = run_name
 
     # Set random seed
     torch.manual_seed(args.seed)
@@ -235,6 +227,11 @@ def main():
     if not args.pre_trained and args.algo not in ['sac', 'cql']:
         print("Training predictive model!")
         train_predict_model(args, env_pool, predict_env)
+
+    wandb.init(project='safety-gym',
+               group=args.env,
+               name=run_name,
+               config=args)
 
     # Train
     train(args, env_sampler, predict_env, agent, env_pool, model_pool)

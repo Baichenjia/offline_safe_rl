@@ -77,7 +77,7 @@ def train_policy_repeats(args, total_step, train_step, cur_step, env_pool, model
                 mmd_penalty = args.penalty * mmd.reshape(mmd.shape[0], 1)
                 model_reward = model_reward - mmd_penalty
 
-
+            model_reward[:, 1] = np.clip(model_reward[:, 1], 0, 1.)
             batch_state, batch_action, batch_reward, batch_next_state, batch_done = np.concatenate((env_state, model_state), axis=0), \
                 np.concatenate((env_action, model_action), axis=0), np.concatenate((np.reshape(env_reward, (env_reward.shape[0], -1)), model_reward), axis=0), \
                 np.concatenate((env_next_state, model_next_state), axis=0), np.concatenate((np.reshape(env_done, (env_done.shape[0], -1)), model_done), axis=0)
