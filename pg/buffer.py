@@ -1,13 +1,13 @@
 import numpy as np
-from safe_rl.utils.mpi_tools import mpi_statistics_scalar
-from safe_rl.pg.utils import combined_shape, \
+# from utils.mpi_tools import mpi_statistics_scalar
+from pg.utils import combined_shape, \
                              keys_as_sorted_list, \
                              values_as_sorted_list, \
                              discount_cumsum, \
                              EPS
 
 
-class CPOBuffer:
+class Buffer:
 
     def __init__(self, size, 
                  obs_shape, act_shape, pi_info_shapes, 
@@ -65,11 +65,13 @@ class CPOBuffer:
         self.ptr, self.path_start_idx = 0, 0
 
         # Advantage normalizing trick for policy gradient
-        adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
+        # adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
+        adv_mean, adv_std = np.mean(self.adv_buf), np.std(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / (adv_std + EPS)
 
         # Center, but do NOT rescale advantages for cost gradient
-        cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf)
+        # cadv_mean, _ = mpi_statistics_scalar(self.cadv_buf)
+        cadv_mean = np.mean(self.cadv_buf)
         self.cadv_buf -= cadv_mean
 
         return [self.obs_buf, self.act_buf, self.adv_buf,
