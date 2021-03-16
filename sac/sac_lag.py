@@ -83,6 +83,7 @@ class SACLag(object):
     def update_parameters(self, memory, batch_size, updates):
         # Sample a batch from memory
         # state_batch, action_batch, reward_batch, next_state_batch, mask_batch = memory.sample(batch_size=batch_size)
+
         state_batch, action_batch, reward_batch, next_state_batch, mask_batch = memory
 
         state_batch = torch.FloatTensor(state_batch).to(self.device)

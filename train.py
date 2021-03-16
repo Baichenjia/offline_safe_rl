@@ -3,7 +3,7 @@ import os
 from d4rl.infos import REF_MIN_SCORE, REF_MAX_SCORE
 
 import wandb
-from sac import SAC, CQL, ReplayMemory
+from sac import SAC, SACLag, CQLLag, ReplayMemory
 from models import ProbEnsemble, PredictEnv
 from batch_utils import *
 from mbrl_utils import *
@@ -15,16 +15,34 @@ from tqdm import tqdm
 def readParser():
     parser = argparse.ArgumentParser(description='BATCH_RL')
 
-    parser.add_argument('--env', default="halfcheetah-medium-replay-v0",
-        help='Mujoco Gym environment (default: halfcheetah-medium-replay-v0)')
-    parser.add_argument('--algo', default="mopo",
+    parser.add_argument('--env', default="Safexp-PointGoal1-v0",
+        help='Safety Gym environment (default: Safexp-PointGoal1-v0)')
+    parser.add_argument('--algo', default="sac",
         help='Must be one of mopo, gambol, sac, cql')
+
     parser.add_argument('--pretrained', dest='pretrained', action='store_true')
     parser.set_defaults(pretrained=False)
-    
+
+    # Lagrangian + MBRL hyperparameters
+    parser.add_argument('--use_constraint', dest='feature', action='store_true')
+    parser.add_argument('--no_use_constraint', dest='use_constraint', action='store_false')
+    parser.set_defaults(use_constraint=True)
+    parser.add_argument('--constraint', type=float, default=0.,
+        help='constraint threshold')
     parser.add_argument('--penalty', type=float, default=1.0,
         help='reward penalty')
-
+    parser.add_argument('--cost_penalty', type=float, default=1.0,
+        help='cost penalty')
+    parser.add_argument('--cost_size', type=int, default=1,
+        help='number of cost functions')
+    parser.add_argument('--learn_cost', dest='learn_cost', action='store_true')
+    parser.add_argument('--no_learn_cost', dest='learn_cost', action='store_false')
+    parser.set_defaults(learn_cost=False)
+    parser.add_argument('--fixed_lamb', dest='fixed_lamb', action='store_true')
+    parser.add_argument('--no_fixed_lamb', dest='fixed_lamb', action='store_false')
+    parser.set_defaults(fixed_lamb=False)
+    parser.add_argument('--lamb', type=float, default=1.0,
+        help='Lagrangian multiplier')
     parser.add_argument('--rollout_length', type=int, default=5, metavar='A',
                         help='rollout length')
     parser.add_argument('--seed', type=int, default=0, metavar='N',
@@ -96,19 +114,16 @@ def train(args, env_sampler, predict_env, agent, env_pool, model_pool):
 
         rewards = [evaluate_policy(args, env_sampler, agent, args.epoch_length) for _ in range(args.eval_n_episodes)]
         rewards = np.array(rewards)
+
         rewards_avg = np.mean(rewards, axis=0)
         rewards_std = np.std(rewards, axis=0)
-
-        min_score = REF_MIN_SCORE[args.env]
-        max_score = REF_MAX_SCORE[args.env]
-        normalized_score = 100 * (rewards_avg - min_score) / (max_score - min_score)
-
         print("")
-        print(f'Epoch {epoch_step} Eval_Reward {rewards_avg:.2f} Normalized_Score {normalized_score:.2f}')
-        wandb.log({'Eval/epoch':epoch_step,
-                   'Eval/reward_mean': rewards_avg,
-                   'Eval/normalized_score': normalized_score,
-                   'Eval/reward_std': rewards_std})
+        print(f'Epoch {epoch_step} Eval_Reward {rewards_avg[0]:.2f} Eval_Cost {rewards_avg[1]:.2f}')
+        wandb.log({'epoch':epoch_step,
+                   'eval_reward': rewards_avg[0],
+                   'eval_cost': rewards_avg[1],
+                   'reward_std': rewards_std[0],
+                   'cost_std': rewards_std[1]})
 
 
 def main():
@@ -126,13 +141,15 @@ def main():
         dataset = qlearning_dataset(env, dataset)
     else:
         env, dataset = load_d4rl_dataset(args.env)
-    from ipdb import set_trace
-    set_trace()
+
     # use all batch data for model-free methods
     if args.algo in ['sac', 'cql']:
         args.real_ratio = 1.0
 
-    wandb.init(project='batch_rl',
+    # hack
+    args.entropy_tuning = True
+
+    wandb.init(project='safety-gym',
                group=args.env,
                name=run_name,
                config=args)
@@ -144,25 +161,36 @@ def main():
     env.seed(args.seed)
     env.action_space.seed(args.seed)
 
-    # Initial agent (SAC or WCSAC)
+    # Initial policy optimizer
     if args.algo != 'cql':
-        agent = SAC(env.observation_space.shape[0], env.action_space)
+        agent = SACLag(env.observation_space.shape[0], env.action_space,
+                    use_constraint=args.use_constraint, cost_lim=args.constraint,
+                    max_len=args.epoch_length, fixed_lamb=args.fixed_lamb,
+                    lamb=args.lamb, automatic_entropy_tuning=args.entropy_tuning)
     else:
-        from sac.cql import CQL
-        agent = CQL(env.observation_space.shape[0], env.action_space)
-
+        agent = CQLLag(env.observation_space.shape[0], env.action_space,
+                    use_constraint=args.use_constraint, cost_lim=args.constraint,
+                    max_len=args.epoch_length, fixed_lamb=args.fixed_lamb,
+                    lamb=args.lamb, automatic_entropy_tuning=args.entropy_tuning)
     # Initial ensemble model
     state_size = np.prod(env.observation_space.shape)
     action_size = np.prod(env.action_space.shape)
+    cost_size = args.cost_size
 
+    # determine if the ensemble should learn the cost
+    if not args.learn_cost:
+        cost_size = 0
 
     # initialize dynamics model
-    env_model = ProbEnsemble(state_size, action_size, reward_size=1)
+    env_model = ProbEnsemble(state_size, action_size, reward_size=1+cost_size)
     if args.cuda:
         env_model.to('cuda')
 
-    # load pre-trained dynamics model
-    model_path = f'saved_models/{args.env}-ensemble.pt'
+    # try loading pre-trained ensemble model
+    if args.learn_cost:
+        model_path = f'saved_models/{args.env}-ensemble.pt'
+    else:
+        model_path = f'saved_models/{args.env}-ensemble-nocost.pt'
 
     if os.path.exists(model_path):
         env_model.load_state_dict(torch.load(model_path, map_location=torch.device('cuda')))
@@ -177,7 +205,8 @@ def main():
     # Sampler Environment
     env_sampler = EnvSampler(env, max_path_length=args.epoch_length)
 
-    # Initial replay buffer for env
+    # initial replay buffer for env
+    # note: for D4RL datasets, need to add cost still
     if dataset is not None:
         n = dataset['observations'].shape[0]
         print(f"{args.env} dataset size {n}")
@@ -185,6 +214,7 @@ def main():
         for i in range(n):
             state, action, reward, next_state, done = dataset['observations'][i], dataset['actions'][i], dataset['rewards'][
                 i], dataset['next_observations'][i], dataset['terminals'][i]
+
             env_pool.push(state, action, reward, next_state, done)
     else:
         env_pool = ReplayMemory(args.init_exploration_steps)

@@ -1,3 +1,5 @@
 *.idea
 datasets/*.hdf5
 *.pyc
+wandb/
+    

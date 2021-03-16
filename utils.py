@@ -28,7 +28,7 @@ def get_safetygym_dataset(h5path=None):
     dataset_file.close()
 
     # Run a few quick sanity checks
-    for key in ['observations', 'actions', 'rewards', 'terminals']:
+    for key in ['observations', 'actions', 'rewards', 'info/cost', 'terminals']:
         assert key in data_dict, 'Dataset is missing key %s' % key
 
 
@@ -57,6 +57,10 @@ def qlearning_dataset(env, dataset, terminate_on_end=False):
         action = dataset['actions'][i].astype(np.float32)
         reward = dataset['rewards'][i].astype(np.float32)
         done_bool = bool(dataset['terminals'][i])
+
+        # combine reward and cost in one vector
+        cost = dataset['info/cost'][i].astype(np.float32)
+        reward = np.array([reward, cost])
 
         if use_timeouts:
             final_timestep = dataset['timeouts'][i]

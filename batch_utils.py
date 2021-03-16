@@ -19,14 +19,22 @@ def evaluate_policy(args, env_sampler, agent, epoch_length=1000):
     for t in range(epoch_length):
         state, action, next_state, reward, done, info = env_sampler.sample(agent, eval_t=True)
 
+        # extract cost
+        if 'cost' in info:
+            cost = info['cost']
+        else:
+            raise NotImplementedError
+
+        sum_cost += cost
         sum_reward += reward
         if done:
             break
+
     # reset the environment
     env_sampler.current_state = None
     env_sampler.path_length = 0
 
-    return sum_reward
+    return sum_reward, sum_cost
 
 
 def train_policy_repeats(args, total_step, train_step, cur_step, env_pool, model_pool, agent):
@@ -80,14 +88,18 @@ def train_policy_repeats(args, total_step, train_step, cur_step, env_pool, model
 
         batch_mask = 1 - batch_done
         # batch_done = (~batch_done).astype(int)
-        critic_1_loss, critic_2_loss, policy_loss, ent_loss, alpha = agent.update_parameters(
+
+        critic_v_loss, critic_cost_loss, min_v, min_c, policy_loss, ent_loss, alpha, lamb = agent.update_parameters(
             (batch_state, batch_action, batch_reward, batch_next_state, batch_mask), args.policy_train_batch_size, i)
 
-        wandb.log({'Training/critic1_loss': critic_1_loss,
-                   'Training/critic2_loss': critic_2_loss,
+        wandb.log({'Training/critic_loss': critic_v_loss,
+                   'Training/critic_cost_loss': critic_cost_loss,
                    'Training/policy_loss': policy_loss,
                    'Training/entropy_loss': ent_loss,
-                   'Training/alpha': alpha})
+                   'Training/alpha': alpha,
+                   'Training/lamb': lamb,
+                   'Debugging/minV': min_v,
+                   'Debugging/minC': min_c})
 
     return args.num_train_repeat
 
