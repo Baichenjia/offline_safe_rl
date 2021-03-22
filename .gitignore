@@ -1,4 +1,4 @@
 *.idea
-datasets/*.hdf5
+datasets/*
 *.pyc
 wandb/
