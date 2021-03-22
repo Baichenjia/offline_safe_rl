@@ -14,7 +14,12 @@ def train_predict_model(args, env_pool, predict_env):
 
     predict_env.model.train(inputs, labels, batch_size=256)
 
-    torch.save(predict_env.model.state_dict(), f'saved_models/{args.env}-ensemble.pt')
+    # save trained dynamics model
+    if args.learn_cost:
+        model_path = f'saved_models/{args.env}-ensemble-h{args.hidden_size}.pt'
+    else:
+        model_path = f'saved_models/{args.env}-ensemble-nocost-h{args.hidden_size}.pt'
+    torch.save(predict_env.model.state_dict(), model_path)
 
 
 def rollout_model(args, predict_env, agent, model_pool, env_pool, rollout_length):

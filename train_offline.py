@@ -42,7 +42,7 @@ def readParser():
         help='Lagrangian multiplier')
     parser.add_argument('--entropy_tuning', dest='entropy_tuning', action='store_true')
     parser.add_argument('--no_entropy_tuning', dest='entropy_tuning', action='store_false')
-    parser.set_defaults(entropy_tuning=True)
+    parser.set_defaults(entropy_tuning=False)
     parser.add_argument('--rollout_length', type=int, default=5, metavar='A',
                         help='rollout length')
     parser.add_argument('--seed', type=int, default=0, metavar='N',
@@ -76,6 +76,8 @@ def readParser():
     parser.add_argument('--policy_train_batch_size', type=int, default=256, metavar='A',
                     help='batch size for training policy')
 
+    parser.add_argument('--hidden_size', type=int, default=400, metavar='A',
+                    help='ensemble model hidden dimension')
     parser.add_argument('--model_type', default='pytorch', metavar='A',
                     help='predict model -- pytorch or tensorflow')
     parser.add_argument('--pre_trained', type=bool, default=False,
@@ -128,8 +130,15 @@ def train(args, env_sampler, predict_env, agent, env_pool, model_pool):
 
 def main():
     args = readParser()
+    if not args.use_constraint:
+        spec = 'noconstraint'
+    elif args.use_constraint:
+        if args.fixed_lamb:
+            spec = f'lambda{args.lamb}-C{args.constraint}'
+        elif not args.fixed_lamb:
+            spec = f'lagrangian{args.lamb}-C{args.constraint}'
 
-    run_name = f"{args.algo}-{args.seed}"
+    run_name = f"{args.algo}-{spec}-{args.seed}"
     args.run_name = run_name
 
     # Initial environment
@@ -137,9 +146,22 @@ def main():
         import safety_gym
         env = gym.make(args.env)
         # hardcoded for now
-        dataset_path = 'datasets/ppo_lagrangian_pointgoal1-30000.hdf5'
+        dataset_path = 'safety_gym_datasets/ppo_lagrangian_pointgoal1-30000.hdf5'
+        # dataset_path = 'safety_gym_datasets/ppo_lagrangian_pointsanitygoal1-1000000.hdf5'
         dataset = get_safetygym_dataset(dataset_path)
         dataset = qlearning_dataset(env, dataset)
+    elif args.env == 'pointmass':
+        from env.pointmass import PointMass
+        env = PointMass()
+        args.epoch_length = 100
+        args.model_train_freq = 100
+        args.num_epoch = 100
+        args.init_exploration_steps = 2000
+        args.rollout_batch_size = 10000
+        dataset_name = f'{args.env}-sac-noconstraint-0-epoch90'
+        print(f'Dataset used: {dataset_name}')
+        dataset = np.load(f'datasets/{dataset_name}.npy', allow_pickle=True).item()
+        args.dataset = dataset_name
     else:
         env, dataset = load_d4rl_dataset(args.env)
 
@@ -153,6 +175,7 @@ def main():
     env.seed(args.seed)
     env.action_space.seed(args.seed)
 
+    args.entropy_tuning = False
     # Initial policy optimizer
     if args.algo != 'cql':
         agent = SACLag(env.observation_space.shape[0], env.action_space,
@@ -174,15 +197,15 @@ def main():
         cost_size = 0
 
     # initialize dynamics model
-    env_model = ProbEnsemble(state_size, action_size, reward_size=1+cost_size)
+    env_model = ProbEnsemble(state_size, action_size, reward_size=1+cost_size, hidden_size=args.hidden_size)
     if args.cuda:
         env_model.to('cuda')
 
     # try loading pre-trained ensemble model
     if args.learn_cost:
-        model_path = f'saved_models/{args.env}-ensemble.pt'
+        model_path = f'saved_models/{args.env}-ensemble-h{args.hidden_size}.pt'
     else:
-        model_path = f'saved_models/{args.env}-ensemble-nocost.pt'
+        model_path = f'saved_models/{args.env}-ensemble-nocost-h{args.hidden_size}.pt'
 
     if os.path.exists(model_path):
         env_model.load_state_dict(torch.load(model_path, map_location=torch.device('cuda')))

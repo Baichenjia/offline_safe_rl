@@ -23,7 +23,7 @@ def evaluate_policy(args, env_sampler, agent, epoch_length=1000):
         if 'cost' in info:
             cost = info['cost']
         else:
-            raise NotImplementedError
+            cost = 0
 
         sum_cost += cost
         sum_reward += reward

@@ -226,7 +226,7 @@ class ProbEnsemble(nn.Module):
 
             if break_train:
                 break
-            # print(f"Epoch {epoch} Val {val_losses.mean().item()}")
+            print(f"Epoch {epoch} Val {val_losses.mean().item()}")
 
         losses = val_losses.detach().cpu().numpy()
         sorted_loss_idx = np.argsort(losses)
