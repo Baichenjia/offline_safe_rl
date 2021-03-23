@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-
+import wandb
 
 def train_predict_model(args, env_pool, predict_env):
     # Get all samples from environment
@@ -12,8 +12,9 @@ def train_predict_model(args, env_pool, predict_env):
     reward = np.reshape(reward, (reward.shape[0], -1))
     labels = np.concatenate((reward, delta_state), axis=-1)
 
-    predict_env.model.train(inputs, labels, batch_size=256)
-
+    val_mse, val_nll = predict_env.model.train(inputs, labels, batch_size=256)
+    wandb.log({'Model/model_nll': val_nll,
+               'Model/model_rmse': val_mse})
     # save trained dynamics model
     if args.learn_cost:
         model_path = f'saved_models/{args.env}-ensemble-h{args.hidden_size}.pt'
@@ -66,6 +67,11 @@ class EnvSampler():
         #     self.env.render()
         self.path_length += 1
         self.sum_reward += reward
+
+        # add the cost
+        assert('cost' in info)
+        cost = info['cost']
+        reward = np.array([reward, cost])
 
         # TODO: Save the path to the env_pool
         if terminal or self.path_length >= self.max_path_length:

@@ -94,6 +94,9 @@ class PredictEnv:
                     penalty[:, 1] = -1 * penalty[:, 1] * cost_penalty
                 elif algo == 'moporo':
                     penalty[:, 1] = 0
+                elif algo == 'mopoco':
+                    penalty[:, 0] = 0
+                    penalty[:, 1] = -1 * penalty[:, 1] * cost_penalty
                 else:
                     raise NotImplementedError
             assert penalty.shape == rewards.shape

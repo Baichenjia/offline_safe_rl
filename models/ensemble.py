@@ -153,7 +153,7 @@ class ProbEnsemble(nn.Module):
         return train_loss
 
     def train(self, inputs, targets, batch_size=256, holdout_ratio=0.2,
-              max_logging=5000, max_epochs_since_update=5, max_epochs=None):
+              max_logging=5000, max_epochs_since_update=5, max_epochs=100):
 
         self._max_epochs_since_update = max_epochs_since_update
         self._snapshots = {i: (None, 1e10) for i in range(self.num_nets)}
@@ -226,7 +226,7 @@ class ProbEnsemble(nn.Module):
 
             if break_train:
                 break
-            print(f"Epoch {epoch} Val {val_losses.mean().item()}")
+            # print(f"Epoch {epoch} Val {val_losses.mean().item()}")
 
         losses = val_losses.detach().cpu().numpy()
         sorted_loss_idx = np.argsort(losses)

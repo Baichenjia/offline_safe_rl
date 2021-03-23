@@ -7,6 +7,7 @@ def exploration_before_start(args, env_sampler, env_pool, agent, init_exploratio
     # init_exploration_steps = 5000
     for i in range(init_exploration_steps):
         state, action, next_state, reward, done, info = env_sampler.sample(agent, random_explore=True)
+
         env_pool.push(state, action, reward, next_state, done)
 
 
@@ -19,14 +20,14 @@ def evaluate_policy(args, env_sampler, agent, epoch_length=1000):
     for t in range(epoch_length):
         state, action, next_state, reward, done, info = env_sampler.sample(agent, eval_t=True)
 
-        # extract cost
-        if 'cost' in info:
-            cost = info['cost']
-        else:
-            cost = 0
+        # # extract cost
+        # if 'cost' in info:
+        #     cost = info['cost']
+        # else:
+        #     cost = 0
 
-        sum_cost += cost
-        sum_reward += reward
+        sum_cost += reward[1]
+        sum_reward += reward[0]
         if done:
             break
 
