@@ -3,8 +3,13 @@ import torch
 
 import wandb
 
-class PredictEnv:
-    def __init__(self, model, env_name):
+class PredictEnvOnPolicy:
+    """
+    Dynamics models for on-policy algorithms such as PPO, TRPO
+    TODO: Not done.
+    """
+    def __init__(self, env, model, env_name):
+        self.env = env
         self.model = model
         self.env_name = env_name
 
@@ -45,38 +50,31 @@ class PredictEnv:
             done = ~not_done
             done = done[:,None]
             return done
-        elif env_name == "Ant-v2" or prefix == 'ant':
-            assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
-
-            x = next_obs[:, 0]
-            not_done = np.isfinite(next_obs).all(axis=-1) \
-                       * (x >= 0.2) \
-                       * (x <= 1.0)
-
-            done = ~not_done
-            done = done[:, None]
-            return done
-        elif env_name == "Humanoid-v2" or prefix == 'humanoid':
-            assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
-
-            z = next_obs[:, 0]
-            done = (z < 1.0) + (z > 2.0)
-
-            done = done[:, None]
-            return done
         else:
             done = np.array([False]).repeat(len(obs))
             done = done[:, None]
             return done
 
+    @property
+    def observation_space(self):
+        return self.env.observation_space
+
+    @property
+    def action_space(self):
+        return self.env.action_space
+
+    @property
+    def spec(self):
+        return self.env.spec
+
+    def reset(self):
+        self.state = self.env.reset()
+        observation = np.copy(self.state)
+        return observation
+
     def step(self, obs, act, deterministic=False, reward_penalty=1, cost_penalty=1, algo='gambol'):
         assert len(obs.shape) == 2
-        if len(obs.shape) == 1:
-            obs = obs[None]
-            act = act[None]
-            return_single = True
-        else:
-            return_single = False
+        act = np.clip(act, *self.action_space.bounds)
 
         inputs = np.concatenate((obs, act), axis=-1)
         ensemble_model_means, ensemble_model_vars = self.model.predict(inputs)
@@ -96,10 +94,6 @@ class PredictEnv:
         batch_idxes = np.arange(0, batch_size)
         samples = ensemble_samples[model_idxes, batch_idxes]
 
-        # model_means = ensemble_model_means[model_idxes, batch_idxes]
-        # model_stds = ensemble_model_stds[model_idxes, batch_idxes]
-        # log_prob, dev = self._get_logprob(samples, ensemble_model_means, ensemble_model_vars)
-
         rewards, next_obs = samples[:,:self.model.reward_size], samples[:,self.model.reward_size:]
         terminals = self._termination_fn(self.env_name, obs, act, next_obs)
 
@@ -113,9 +107,6 @@ class PredictEnv:
                     penalty[:, 1] = -1 * penalty[:, 1] * cost_penalty
                 elif algo == 'moporo':
                     penalty[:, 1] = 0
-                elif algo == 'mopoco':
-                    penalty[:, 0] = 0
-                    penalty[:, 1] = -1 * penalty[:, 1] * cost_penalty
                 else:
                     raise NotImplementedError
             assert penalty.shape == rewards.shape

@@ -52,7 +52,7 @@ class SACLag(object):
         if self.use_constraint and not self.fixed_lamb:
             self.log_lamb = torch.tensor([math.log(lamb)], requires_grad=True, device=self.device)
             # self.log_lamb = torch.zeros(1, requires_grad=True, device=self.device)
-            self.lamb_optim = Adam([self.log_lamb], lr=1e-5)
+            self.lamb_optim = Adam([self.log_lamb], lr=lr)
 
         if self.policy_type == "Gaussian":
             # Target Entropy = −dim(A) (e.g. , -6 for HalfCheetah-v2) as given in the paper
@@ -141,15 +141,15 @@ class SACLag(object):
 
         # Lagrangian-update
         if self.use_constraint and not self.fixed_lamb:
-            # cost_constraint = self.cost_lim / (1-self.gamma) / self.max_len
+            cost_constraint = self.cost_lim * (1-self.gamma ** self.max_len) / (1-self.gamma) / self.max_len
             # cost_constraint = self.cost_lim / (1-self.gamma)
-            cost_constraint = self.cost_lim
+            # cost_constraint = self.cost_lim
             lamb_loss = -(self.log_lamb * (min_q_cost_pi - cost_constraint).detach()).mean()
 
             self.lamb_optim.zero_grad()
             lamb_loss.backward()
             self.lamb_optim.step()
-
+ 
             self.lamb = self.log_lamb.exp()
 
         # Entropy-paramter update

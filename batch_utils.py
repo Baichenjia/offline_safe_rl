@@ -26,7 +26,8 @@ def evaluate_policy(args, env_sampler, agent, epoch_length=1000):
         # else:
         #     cost = 0
 
-        sum_cost += reward[1]
+        # use discounted version for cost
+        sum_cost += (agent.gamma ** t) * reward[1]
         sum_reward += reward[0]
         if done:
             break

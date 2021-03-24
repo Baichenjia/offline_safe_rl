@@ -2,3 +2,5 @@
 datasets/*
 *.pyc
 wandb/
+saved_models/
+saved_policies/
