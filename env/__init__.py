@@ -1,3 +1,4 @@
+from env.ant_truncated import AntTruncatedObsEnv
 from env.ant_circle import AntCircleEnv
 from env.humanoid_circle import HumanoidCircleEnv
 from env.ant_circle_truncated import AntCircleTruncatedEnv
@@ -5,6 +6,10 @@ from env.humanoid_circle_truncated import HumanoidCircleTruncatedEnv
 
 from gym.envs.registration import register
 
+register(
+    id='AntTruncated-v0',
+    entry_point='env:AntTruncatedObsEnv',
+)
 register(
     id='AntCircle-v0',
     entry_point='env:AntCircleEnv',

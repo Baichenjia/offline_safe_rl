@@ -21,7 +21,7 @@ def evaluate_policy(env, agent, num_eisodes=30, epoch_length=100):
             ep_reward += reward
             ep_cost += (0.995 ** t) * info['cost']
             # print(t)
-            # env.render()
+            env.render()
             state = next_state
             if done:
                 break
