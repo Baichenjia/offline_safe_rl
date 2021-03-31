@@ -4,6 +4,8 @@ from d4rl.infos import REF_MIN_SCORE, REF_MAX_SCORE
 
 import wandb
 from sac import SAC, SACLag, CQLLag, ReplayMemory
+from cem import ConstrainedCEM
+
 from models import ProbEnsemble, PredictEnv
 import env
 from batch_utils import *
@@ -88,22 +90,21 @@ def readParser():
     return parser.parse_args()
 
 
-def train(args, env_sampler, predict_env, agent, env_pool, model_pool):
+def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_pool):
     total_step = 0
     reward_sum = 0
     rollout_length = args.rollout_length
-    exploration_before_start(args, env_sampler, env_pool, agent)
+    exploration_before_start(args, env_sampler, env_pool, cem_agent)
 
     for epoch_step in tqdm(range(args.num_epoch)):
-        if (epoch_step+1) % 100 == 0:
-            agent_path = f'saved_policies/{args.env}-{args.run_name}-epoch{epoch_step+1}'
-            agent.save_model(agent_path)
+        # if (epoch_step+1) % 100 == 0:
+        #     agent_path = f'saved_policies/{args.env}-{args.run_name}-epoch{epoch_step+1}'
+        #     agent.save_model(agent_path)
 
         start_step = total_step
         train_policy_steps = 0
         epoch_reward = 0
         epoch_cost = 0
-
         for i in range(args.epoch_length):
             cur_step = total_step - start_step
 
@@ -114,19 +115,26 @@ def train(args, env_sampler, predict_env, agent, env_pool, model_pool):
             if cur_step % args.model_train_freq == 0 and args.real_ratio < 1.0:
                 assert(args.algo not in ['sac', 'cql'])
                 train_predict_model(args, env_pool, predict_env)
-                rollout_model(args, predict_env, agent, model_pool, env_pool, rollout_length)
+                cem_agent.set_model(predict_env.model)
 
-            # step in real environment
-            cur_state, action, next_state, reward, done, info = env_sampler.sample(agent)
+            # plan CEM action
+            cur_state, action, next_state, reward, done, info = env_sampler.sample(cem_agent)
             env_pool.push(cur_state, action, reward, next_state, done)
+            expert_pool.push(cur_state, action, reward, next_state, done)
 
             epoch_reward += reward[0]
             epoch_cost += reward[1]
 
-            # train policy
-            if len(env_pool) > args.min_pool_size:
-                train_policy_steps += train_policy_repeats(args, total_step, train_policy_steps, cur_step, env_pool, model_pool, agent)
-            total_step += 1
+        for _ in range(100):
+            expert_states, expert_actions, _, _, _ = expert_pool.sample(args.policy_train_batch_size)
+            expert_states = torch.FloatTensor(expert_states).to(agent.device)
+            expert_actions = torch.FloatTensor(expert_actions).to(agent.device)
+            # mean, _ = agent.policy(expert_states)
+            # policy_loss = torch.nn.MSELoss()(mean, expert_actions)
+            agent.policy_optim.zero_grad()
+            policy_loss = -agent.policy.log_prob(expert_states, expert_actions).mean()
+            policy_loss.backward()
+            agent.policy_optim.step()
 
         rewards = [evaluate_policy(args, env_sampler, agent, args.epoch_length) for _ in range(args.eval_n_episodes)]
         rewards = np.array(rewards)
@@ -182,24 +190,15 @@ def main():
     env.seed(args.seed)
     env.action_space.seed(args.seed)
 
-    # Initial policy optimizer
-    if args.algo != 'cql':
-        agent = SACLag(env.observation_space.shape[0], env.action_space,
-                       gamma=args.gamma,
-                    use_constraint=args.use_constraint, cost_lim=args.cost_lim,
-                    max_len=args.epoch_length, fixed_lamb=args.fixed_lamb,
-                    lamb=args.lamb, automatic_entropy_tuning=args.entropy_tuning)
-    else:
-        agent = CQLLag(env.observation_space.shape[0], env.action_space,
-                       gamma=args.gamma,
-                    use_constraint=args.use_constraint, cost_lim=args.cost_lim,
-                    max_len=args.epoch_length, fixed_lamb=args.fixed_lamb,
-                    lamb=args.lamb, automatic_entropy_tuning=args.entropy_tuning)
+    # initialize policy agent and cem optimizer
+    agent = SAC(env.observation_space.shape[0], env.action_space,
+                       gamma=args.gamma)
+    cem_agent = ConstrainedCEM(env, gamma=args.gamma, use_constraint=args.use_constraint)
 
     # use all batch data for model-free methods
     if args.algo in ['sac', 'cql']:
         args.real_ratio = 1.0
-        # args.num_epoch = 1000
+        args.num_epoch = 1000
         args.num_train_repeat = 1
 
     # Initial ensemble model
@@ -212,7 +211,8 @@ def main():
         cost_size = 0
 
     # initialize dynamics model
-    env_model = ProbEnsemble(state_size, action_size, reward_size=1+cost_size, hidden_size=args.hidden_size)
+    env_model = ProbEnsemble(state_size, action_size, network_size=5,
+                             reward_size=1+cost_size, hidden_size=args.hidden_size)
     if args.cuda:
         env_model.to('cuda')
 
@@ -237,7 +237,7 @@ def main():
                config=args)
 
     # Train
-    train(args, env_sampler, predict_env, agent, env_pool, model_pool)
+    train(args, env_sampler, predict_env, cem_agent, agent, env_pool, model_pool)
 
 
 if __name__ == '__main__':
