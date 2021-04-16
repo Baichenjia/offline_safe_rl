@@ -7,6 +7,7 @@ from sac import SAC, SACLag, CQLLag, ReplayMemory
 from cem import ConstrainedCEM
 
 from models import ProbEnsemble, PredictEnv
+import safety_gym
 import env
 from batch_utils import *
 from mbrl_utils import *
@@ -124,6 +125,7 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
 
             epoch_reward += reward[0]
             epoch_cost += reward[1]
+            total_step += 1
 
         for _ in range(100):
             expert_states, expert_actions, _, _, _ = expert_pool.sample(args.policy_train_batch_size)
@@ -135,6 +137,8 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
             policy_loss = -agent.policy.log_prob(expert_states, expert_actions).mean()
             policy_loss.backward()
             agent.policy_optim.step()
+            loss_val = policy_loss.cpu().detach().item()
+            wandb.log({"Policy/loss": loss_val})
 
         rewards = [evaluate_policy(args, env_sampler, agent, args.epoch_length) for _ in range(args.eval_n_episodes)]
         rewards = np.array(rewards)
