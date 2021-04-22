@@ -69,8 +69,8 @@ class EnvSampler():
         self.sum_reward += reward
 
         # add the cost
-        assert('cost' in info)
-        cost = info['cost']
+        # assert('cost' in info)
+        cost = info.get('cost', 0)
         reward = np.array([reward, cost])
 
         # TODO: Save the path to the env_pool
