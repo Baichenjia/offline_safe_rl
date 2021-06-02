@@ -4,3 +4,6 @@ datasets/*
 wandb/
 saved_models/
 saved_policies/
+.vscode
+.ipynb_checkpoints
+notebooks

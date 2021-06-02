@@ -4,17 +4,15 @@ import wandb
 
 def train_predict_model(args, env_pool, predict_env):
     # Get all samples from environment
-    state, action, reward, next_state, done = env_pool.sample(len(env_pool))
+    state, action, reward, next_state, done = env_pool.return_all()
 
     delta_state = next_state - state
     inputs = np.concatenate((state, action), axis=-1)
 
     reward = np.reshape(reward, (reward.shape[0], -1))
-    labels = np.concatenate((reward, delta_state), axis=-1)
+    labels = np.concatenate((done[:, np.newaxis], reward, delta_state), axis=-1)
 
-    val_mse, val_nll = predict_env.model.train(inputs, labels, batch_size=256)
-    wandb.log({'Model/model_nll': val_nll,
-               'Model/model_rmse': val_mse})
+    val_mse, val_nll = predict_env.model.train(inputs, labels, batch_size=32)
     # save trained dynamics model
     if args.learn_cost:
         model_path = f'saved_models/{args.env}-ensemble-h{args.hidden_size}.pt'
@@ -61,6 +59,7 @@ class EnvSampler():
             action = agent.select_action(self.current_state, eval_t)
         else:
             action = self.env.action_space.sample()
+        action = action.astype(float)
 
         next_state, reward, terminal, info = self.env.step(action)
         # if eval_t:
@@ -70,7 +69,15 @@ class EnvSampler():
 
         # add the cost
         # assert('cost' in info)
-        cost = info.get('cost', 0)
+        if "cost" in info:
+            cost = info["cost"]
+        elif "x_velocity" in info:
+            if "y_velocity" in info:
+                cost = np.sqrt(info["y_velocity"] ** 2 + info["x_velocity"] ** 2)
+            else:
+                cost = np.abs(info["x_velocity"])
+        else:
+            cost = 0
         reward = np.array([reward, cost])
 
         # TODO: Save the path to the env_pool

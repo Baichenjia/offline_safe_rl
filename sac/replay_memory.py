@@ -1,12 +1,19 @@
+from torch.utils.data import Dataset
 import random
 import numpy as np
 from operator import itemgetter
 
-class ReplayMemory:
+class ReplayMemory(Dataset):
     def __init__(self, capacity):
         self.capacity = capacity
         self.buffer = []
         self.position = 0
+    
+    def __len__(self):
+        return len(self.buffer)
+    
+    def __getitem__(self, idx):
+        return self.buffer[idx]
 
     def push(self, state, action, reward, next_state, done):
         if len(self.buffer) < self.capacity:
