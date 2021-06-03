@@ -10,7 +10,7 @@ def train_predict_model(args, env_pool, predict_env):
     inputs = np.concatenate((state, action), axis=-1)
 
     reward = np.reshape(reward, (reward.shape[0], -1))
-    labels = np.concatenate((done[:, np.newaxis], reward, delta_state), axis=-1)
+    labels = np.concatenate((reward, delta_state), axis=-1)
 
     val_mse, val_nll = predict_env.model.train(inputs, labels, batch_size=32)
     # save trained dynamics model

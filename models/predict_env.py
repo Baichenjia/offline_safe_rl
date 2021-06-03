@@ -8,11 +8,11 @@ class PredictEnv:
         self.model = model
         self.env_name = env_name
 
-    def _termination_fn(self, env_name, obs, act, next_obs):
-        prefix = env_name.split('-')[0]
+    def termination_fn(self, obs, act, next_obs):
+        prefix = self.env_name.split('-')[0]
         # TODO: need to figure out how to implement these for safety-gym environments
         # Jason: It appears that safety-gym only terminates on time-out
-        if env_name == "Hopper-v2" or prefix == 'hopper' or prefix == 'Hopper':
+        if self.env_name == "Hopper-v2" or prefix == 'hopper' or prefix == 'Hopper':
             assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
             height = next_obs[:, 0]
@@ -26,14 +26,14 @@ class PredictEnv:
             done = done[:,None]
             return done
 
-        elif env_name == 'HalfCheetah-v2' or prefix == 'halfcheetah' or prefix == 'HalfCheetah':
+        elif self.env_name == 'HalfCheetah-v2' or prefix == 'halfcheetah' or prefix == 'HalfCheetah':
             assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
             done = np.array([False]).repeat(len(obs))
             done = done[:, None]
             return done
 
-        elif env_name == "Walker2d-v2" or prefix == 'walker2d' or prefix == 'Walker2d':
+        elif self.env_name == "Walker2d-v2" or prefix == 'walker2d' or prefix == 'Walker2d':
             assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
             height = next_obs[:, 0]
@@ -45,7 +45,7 @@ class PredictEnv:
             done = ~not_done
             done = done[:,None]
             return done
-        elif env_name == "Ant-v2" or prefix == 'ant':
+        elif self.env_name == "Ant-v2" or prefix == 'ant':
             assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
             x = next_obs[:, 0]
@@ -56,7 +56,7 @@ class PredictEnv:
             done = ~not_done
             done = done[:, None]
             return done
-        elif env_name == "Humanoid-v2" or prefix == 'humanoid':
+        elif self.env_name == "Humanoid-v2" or prefix == 'humanoid':
             assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
             z = next_obs[:, 0]
@@ -101,7 +101,7 @@ class PredictEnv:
         # log_prob, dev = self._get_logprob(samples, ensemble_model_means, ensemble_model_vars)
 
         rewards, next_obs = samples[:,:self.model.reward_size], samples[:,self.model.reward_size:]
-        terminals = self._termination_fn(self.env_name, obs, act, next_obs)
+        terminals = self.termination_fn(obs, act, next_obs)
 
         if 'mopo' in algo and reward_penalty != 0:
             penalty = np.amax(np.linalg.norm(ensemble_model_stds, axis=2), axis=0)

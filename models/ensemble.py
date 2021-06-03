@@ -58,8 +58,6 @@ class ProbEnsemble(nn.Module):
 
         self.lin4_w, self.lin4_b = get_affine_params(network_size, hidden_size, self.out_features)
 
-        self.done_w, self.done_b = get_affine_params(network_size, hidden_size, 1)
-
         self.inputs_mu = nn.Parameter(torch.zeros(1, self.in_features), requires_grad=False)
         self.inputs_sigma = nn.Parameter(torch.zeros(1, self.in_features), requires_grad=False)
 
@@ -108,9 +106,6 @@ class ProbEnsemble(nn.Module):
 
         out = inputs.matmul(self.lin4_w) + self.lin4_b
 
-        done = inputs.matmul(self.done_w) + self.done_b
-        done = torch.sigmoid(done)
-
         mean = out[:, :, :self.out_features // 2]
 
         logvar = out[:, :, self.out_features // 2:]
@@ -118,9 +113,9 @@ class ProbEnsemble(nn.Module):
         logvar = self.min_logvar + F.softplus(logvar - self.min_logvar)
 
         if ret_logvar:
-            return mean, logvar, done
+            return mean, logvar
 
-        return mean, torch.exp(logvar), done
+        return mean, torch.exp(logvar)
 
     def _save_best(self, epoch, holdout_losses):
         updated = False
@@ -168,9 +163,6 @@ class ProbEnsemble(nn.Module):
             idxs = np.argsort(np.random.uniform(size=arr.shape), axis=-1)
             return arr[np.arange(arr.shape[0])[:, None], idxs]
 
-        done_targets = targets[:, :1]
-        targets = targets[:, 1:]
-
         self.fit_input_stats(inputs)
 
         idxs = np.random.randint(inputs.shape[0], size=[self.num_nets, inputs.shape[0]])
@@ -188,24 +180,20 @@ class ProbEnsemble(nn.Module):
             decays = []
             min_logvars = []
             max_logvars = []
-            done_losses = []
-            done_accuracies = []
 
             for batch_num in range(int(np.ceil(idxs.shape[-1] / batch_size))):
                 batch_idxs = idxs[:, batch_num * batch_size:(batch_num + 1) * batch_size]
 
                 input = torch.from_numpy(inputs[batch_idxs]).float().to(device)
                 target = torch.from_numpy(targets[batch_idxs]).float().to(device)
-                done_target = torch.from_numpy(done_targets[batch_idxs]).float().to(device)
                 train_loss = 0.01 * (self.max_logvar.sum() - self.min_logvar.sum())
                 train_loss += self.compute_decays()
-                mean, logvar, done = self(input, ret_logvar=True)
+                mean, logvar = self(input, ret_logvar=True)
 
                 inv_var = torch.exp(-logvar)
                 train_losses = ((mean - target) ** 2) * inv_var + logvar
                 train_losses = train_losses.mean(-1).mean(-1)
                 train_loss += train_losses.sum()
-                train_loss += F.binary_cross_entropy(done, done_target)
 
                 losses.append(train_loss.detach().cpu().item())
                 mses.append(((mean - target) ** 2).mean().detach().cpu().item())
@@ -214,8 +202,6 @@ class ProbEnsemble(nn.Module):
                 decays.append(self.compute_decays().detach().cpu().item())
                 min_logvars.append(self.min_logvar.mean().detach().cpu().item())
                 max_logvars.append(self.max_logvar.mean().detach().cpu().item())
-                done_losses.append(F.binary_cross_entropy(done, done_target).detach().cpu().item())
-                done_accuracies.append((done.round() == done_target).float().mean().detach().cpu().item())
 
                 self.optimizer.zero_grad()
                 train_loss.backward()
@@ -230,8 +216,7 @@ class ProbEnsemble(nn.Module):
             with torch.no_grad():
                 input_val = torch.from_numpy(inputs[idxs[:5000]]).to(device).float()
                 target_val = torch.from_numpy(targets[idxs[:5000]]).to(device).float()
-                done_val = torch.from_numpy(done_targets[idxs[:5000]]).to(device).float()
-                ensemble_mean, ensemble_var, ensemble_done = self(input_val, ret_logvar=False)
+                ensemble_mean, ensemble_var = self(input_val, ret_logvar=False)
                 ensemble_std = torch.sqrt(ensemble_var)
                 rmse = torch.sqrt((ensemble_mean - target_val) ** 2).mean()
                 ll = torch.distributions.Normal(loc=ensemble_mean, scale=ensemble_std).log_prob(target_val)
@@ -258,8 +243,6 @@ class ProbEnsemble(nn.Module):
                        "Model/max_logvar": np.mean(max_logvars),
                        "Model/update_step": self.grad_update,
                        "Model/rmse": rmse.detach().cpu().item(),
-                       "Model/done_loss": np.mean(done_losses),
-                       "Model/done_accuracy": np.mean(done_accuracies),
                        })
 
             # if break_train:

@@ -26,8 +26,6 @@ def readParser():
     parser.add_argument('--algo', default="sac",
         help='Must be one of mopo, gambol, sac, cql')
     parser.add_argument('--random_policy', default=False, action='store_true')
-    parser.add_argument('--early_termination', dest='discount_termination', action='store_true')
-    parser.set_defaults(discount_termination=False)
     parser.add_argument('--penalize_cost', action='store_true')
     parser.add_argument('--penalty_lambda', type=float, default=1.0)
     parser.add_argument('--tune_penalty', action='store_true')
@@ -214,20 +212,6 @@ def main():
     # initialize policy agent and cem optimizer
     agent = SAC(env.observation_space.shape[0], env.action_space,
                        gamma=args.gamma)
-    cem_agent = ConstrainedCEM(env,
-                               gamma=args.gamma,
-                               cost_lim=args.cost_lim,
-                               use_constraint=args.use_constraint,
-                               use_colored_noise=args.colored_noise,
-                               discount_termination=args.discount_termination,
-                               penalize_cost=args.penalize_cost,
-                               tune_penalty=args.tune_penalty,
-                               penalty_lambda=args.penalty_lambda,
-                               )
-
-    # only can set tune_penalty to true if CCEM is penalizing cost
-    if args.tune_penalty:
-        assert args.penalize_cost
 
     # use all batch data for model-free methods
     # if args.algo in ['sac', 'cql']:
@@ -249,6 +233,20 @@ def main():
     # Imaginary Environment
     predict_env = PredictEnv(env_model, args.env)
 
+    cem_agent = ConstrainedCEM(env,
+                               gamma=args.gamma,
+                               cost_lim=args.cost_lim,
+                               use_constraint=args.use_constraint,
+                               use_colored_noise=args.colored_noise,
+                               penalize_cost=args.penalize_cost,
+                               tune_penalty=args.tune_penalty,
+                               penalty_lambda=args.penalty_lambda,
+                               termination_function = predict_env.termination_fn
+                               )
+
+    # only can set tune_penalty to true if CCEM is penalizing cost
+    if args.tune_penalty:
+        assert args.penalize_cost
     # Sampler Environment
     env_sampler = EnvSampler(env, max_path_length=args.epoch_length)
 

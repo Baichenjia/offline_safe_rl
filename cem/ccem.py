@@ -11,6 +11,7 @@ import wandb
 class ConstrainedCEM:
     def __init__(self,
                  env,
+                 termination_function=None,
                  epoch_length=1000,
                  gamma=0.99,
                  c_gamma=0.99,
@@ -20,7 +21,6 @@ class ConstrainedCEM:
                  tune_penalty=False,
                  use_constraint=True,
                  use_colored_noise=False,
-                 discount_termination=False,
                  penalize_cost=True,
                  ):
         self.dO, self.dU = env.observation_space.shape[0], env.action_space.shape[0]
@@ -30,18 +30,18 @@ class ConstrainedCEM:
 
         self.tune_penalty = tune_penalty
         if not self.tune_penalty:
-            self.penalty_lambda = penalty_lambda
+            self.penalty_lambda = torch.tensor([penalty_lambda], requires_grad=False)
         else:
             self.log_penalty_lambda = torch.tensor([math.log(penalty_lambda)], requires_grad=True)
             self.lamb_optim = Adam([self.log_penalty_lambda], lr=0.01)
             self.penalty_lambda = self.log_penalty_lambda.exp()
 
+        self.termination_function = termination_function
         self.noise_beta = noise_beta
         self.cost_lim = cost_lim
         self.epoch_length = epoch_length
         self.use_constraint = use_constraint
         self.use_colored_noise = use_colored_noise
-        self.discount_termination = discount_termination
         self.penalize_cost = penalize_cost
         self.device = 'cuda:0'
 
@@ -92,12 +92,8 @@ class ConstrainedCEM:
             samples = X.rvs(size=[self.popsize, self.plan_hor * self.dU]) * np.sqrt(constrained_var) + mean
             samples = samples.astype(np.float32)
 
-            rewards, costs, not_dones = self.rollout(obs, samples)
-            not_dones = np.minimum(not_dones, 1 - 1e-3)
-            if self.discount_termination:
-                epoch_ratio = (np.power(not_dones, self.epoch_length / self.plan_hor) - 1) / np.log(not_dones)
-            else:
-                epoch_ratio = np.ones_like(not_dones) * self.epoch_length / self.plan_hor
+            rewards, costs= self.rollout(obs, samples)
+            epoch_ratio = np.ones_like(costs) * self.epoch_length / self.plan_hor
             eps_lens = epoch_ratio * self.plan_hor
             c_gamma_discount = (1 - self.c_gamma ** eps_lens) / (1 - self.c_gamma) / self.plan_hor
             rewards = rewards * epoch_ratio
@@ -176,20 +172,22 @@ class ConstrainedCEM:
 
         rewards = torch.zeros(nopt, self.npart, device=self.device)
         costs = torch.zeros(nopt, self.npart, device=self.device)
-        not_dones = torch.ones(nopt, self.npart, device=self.device)
+        dones = torch.zeros(nopt, self.npart, dtype=bool, device=self.device)
 
         for t in range(self.plan_hor):
             cur_acs = ac_seqs[t]
 
-            next_obs, reward, cost, done = self._predict_next(cur_obs, cur_acs)
+            obs_delta, reward, cost, done = self._predict_next(cur_obs, cur_acs)
+            done = done.view(-1, self.npart)
             reward = reward.view(-1, self.npart)
             cost = cost.view(-1, self.npart)
-            done = done.view(-1, self.npart)
 
-            not_dones *= 1 - done
-            rewards += reward
-            costs += cost
-            cur_obs = cur_obs + next_obs
+            dones = dones | done
+            rewards += reward * ~dones
+            termination_penalty = cost.max()
+            costs += cost * ~dones
+            costs += termination_penalty * dones
+            cur_obs = cur_obs + obs_delta
 
             if t == 0:
                 start_reward = reward
@@ -205,7 +203,7 @@ class ConstrainedCEM:
                     "ModelRollout/EndStdReward": reward.std(),
                     "ModelRollout/EndCost": cost.mean(),
                     "ModelRollout/EndStdCost": cost.std(),
-                    "ModelRollout/EndNotDone": not_dones.mean(),
+                    "ModelRollout/EndDone": dones.float().mean(),
                     })
 
 
@@ -214,7 +212,7 @@ class ConstrainedCEM:
         costs[costs != costs] = 1e6
 
         # TODO: both rewards and costs should be returned
-        return rewards.mean(dim=1).detach().cpu().numpy(), costs.mean(dim=1).detach().cpu().numpy(), not_dones.mean(dim=1).detach().cpu().numpy()
+        return rewards.mean(dim=1).detach().cpu().numpy(), costs.mean(dim=1).detach().cpu().numpy()
 
     def optimize_penalty_lambda(self, epoch_cost):
         lamb_loss = -(self.log_penalty_lambda * (epoch_cost - self.cost_lim))
@@ -228,15 +226,15 @@ class ConstrainedCEM:
     def _predict_next(self, obs, acs):
         # print(obs.shape, acs.shape)
         proc_obs = self._expand_to_ts_format(obs)
-        acs = self._expand_to_ts_format(acs)
+        proc_acs = self._expand_to_ts_format(acs)
         # print(proc_obs.shape, acs.shape)
 
-        inputs = torch.cat((proc_obs, acs), dim=-1)
+        inputs = torch.cat((proc_obs, proc_acs), dim=-1)
 
-        mean, var, done = self.model(inputs)
+        mean, var = self.model(inputs)
 
         if self.use_colored_noise:
-            noise = torch.FloatTensor(cn.powerlaw_psd_gaussian(self.noise_beta, mean.shape), device=self.device)
+            noise = torch.FloatTensor(cn.powerlaw_psd_gaussian(self.noise_beta, mean.shape)).to(self.device)
         else:
             noise = torch.randn_like(mean, device=self.device)
 
@@ -245,9 +243,16 @@ class ConstrainedCEM:
         # TS Optimization: Remove additional dimension
         predictions = self._flatten_to_matrix(predictions)
 
-        rewards, next_obs = predictions[:, :self.model.reward_size], predictions[:, self.model.reward_size:]
+        rewards, obs_delta = predictions[:, :self.model.reward_size], predictions[:, self.model.reward_size:]
 
         reward = rewards[:, 0]
+
+        done = self.termination_function(
+            obs.detach().cpu().numpy(),
+            acs.detach().cpu().numpy(),
+            (obs + obs_delta).detach().cpu().numpy(),
+            )
+        done = torch.from_numpy(done).to(self.device)
 
         if not self.use_constraint and rewards.shape[1] < 2:
             cost = torch.zeros_like(reward)
@@ -256,13 +261,9 @@ class ConstrainedCEM:
         
         if self.use_constraint and self.penalize_cost:
             cost_penalty = var.sqrt().norm(dim=2).max(0)[0].repeat_interleave(self.model.num_nets)
-            # if not self.tune_penalty:
-            #     penalty_lambda = self.penalty_lambda
-            # else:
-            #     penalty_lambda = self.log_penalty_lambda.exp().detach()
             cost += self.penalty_lambda.to(cost_penalty.device) * cost_penalty
 
-        return next_obs, reward, cost, done
+        return obs_delta, reward, cost, done
 
     def _expand_to_ts_format(self, mat):
         dim = mat.shape[-1]
