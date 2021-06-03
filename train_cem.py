@@ -188,9 +188,9 @@ def main():
         spec = 'noconstraint'
     elif args.use_constraint:
         if args.penalize_cost:
-            spec = f'ccem-C{args.cost_lim}'
+            spec = f'P{args.penalty_lambda}-C{args.cost_lim}'
         else:
-            spec = f'ccem{args.penalty_lambda}-C{args.cost_lim}'
+            spec = f'C{args.cost_lim}'
 
     run_name = f"{args.algo}-{spec}-{args.seed}"
     args.run_name = run_name
