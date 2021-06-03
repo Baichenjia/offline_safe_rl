@@ -7,7 +7,7 @@ from sac import SAC, SACLag, CQLLag, ReplayMemory
 from cem import ConstrainedCEM
 
 from models import ProbEnsemble, PredictEnv
-import safety_gym
+# import safety_gym
 import env
 from batch_utils import *
 from mbrl_utils import *
@@ -30,6 +30,7 @@ def readParser():
     parser.set_defaults(discount_termination=False)
     parser.add_argument('--penalize_cost', action='store_true')
     parser.add_argument('--penalty_lambda', type=float, default=1.0)
+    parser.add_argument('--tune_penalty', action='store_true')
     parser.add_argument('--colored_noise', action='store_true')
     parser.add_argument('--behavioral_cloning', action='store_true')
     parser.add_argument('--use_constraint', dest='feature', action='store_true')
@@ -142,6 +143,9 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
         print("")
         print(f'Epoch {epoch_step} Train_Reward {epoch_reward:.2f} Train_Cost {epoch_cost:.2f} Train_Len {epoch_len:.2f}')
 
+        if args.tune_penalty:
+            cem_agent.optimize_penalty_lambda(epoch_cost)
+
         if args.behavioral_cloning and len(expert_pool):
             dataloader = DataLoader(expert_pool, batch_size=args.policy_train_batch_size, shuffle=True)
             for expert_states, expert_actions, _, _, _ in dataloader:
@@ -217,8 +221,13 @@ def main():
                                use_colored_noise=args.colored_noise,
                                discount_termination=args.discount_termination,
                                penalize_cost=args.penalize_cost,
+                               tune_penalty=args.tune_penalty,
                                penalty_lambda=args.penalty_lambda,
                                )
+
+    # only can set tune_penalty to true if CCEM is penalizing cost
+    if args.tune_penalty:
+        assert args.penalize_cost
 
     # use all batch data for model-free methods
     # if args.algo in ['sac', 'cql']:

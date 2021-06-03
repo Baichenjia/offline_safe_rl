@@ -1,6 +1,9 @@
+import math
 import numpy as np
 import colorednoise as cn
 import torch
+from torch.optim import Adam
+
 import scipy.stats as stats
 import wandb
 
@@ -14,6 +17,7 @@ class ConstrainedCEM:
                  penalty_lambda=1,
                  noise_beta=0.25,
                  cost_lim=5,
+                 tune_penalty=False,
                  use_constraint=True,
                  use_colored_noise=False,
                  discount_termination=False,
@@ -23,7 +27,15 @@ class ConstrainedCEM:
         self.ac_ub, self.ac_lb = env.action_space.high, env.action_space.low
         self.gamma = gamma
         self.c_gamma = c_gamma
-        self.penalty_lambda= penalty_lambda
+
+        self.tune_penalty = tune_penalty
+        if not self.tune_penalty:
+            self.penalty_lambda = penalty_lambda
+        else:
+            self.log_penalty_lambda = torch.tensor([math.log(penalty_lambda)], requires_grad=True)
+            self.lamb_optim = Adam([self.log_penalty_lambda], lr=0.01)
+            self.penalty_lambda = self.log_penalty_lambda.exp()
+
         self.noise_beta = noise_beta
         self.cost_lim = cost_lim
         self.epoch_length = epoch_length
@@ -31,6 +43,7 @@ class ConstrainedCEM:
         self.use_colored_noise = use_colored_noise
         self.discount_termination = discount_termination
         self.penalize_cost = penalize_cost
+        self.device = 'cuda:0'
 
         # cem optimization hyperparams
         self.per = 1
@@ -49,7 +62,6 @@ class ConstrainedCEM:
         self.init_var = np.tile(np.square(self.ac_ub - self.ac_lb) / 16, [self.plan_hor])
 
         self.model = None
-        self.device = 'cuda:0'
         self.step = 0
         self.log_period = epoch_length / 25
 
@@ -119,6 +131,7 @@ class ConstrainedCEM:
         
         if self.step % self.log_period == 0:
             wandb.log({ "CEM/Step": self.step,
+                        "CEM/PenaltyLambda": self.penalty_lambda,
                         "CEM/AverageReward": average_reward,
                         "CEM/AverageCost": average_cost,
                         "CEM/AverageLen": average_len,
@@ -203,6 +216,15 @@ class ConstrainedCEM:
         # TODO: both rewards and costs should be returned
         return rewards.mean(dim=1).detach().cpu().numpy(), costs.mean(dim=1).detach().cpu().numpy(), not_dones.mean(dim=1).detach().cpu().numpy()
 
+    def optimize_penalty_lambda(self, epoch_cost):
+        lamb_loss = -(self.log_penalty_lambda * (epoch_cost - self.cost_lim))
+
+        self.lamb_optim.zero_grad()
+        lamb_loss.backward()
+        self.lamb_optim.step()
+
+        self.penalty_lambda = self.log_penalty_lambda.exp().detach()
+
     def _predict_next(self, obs, acs):
         # print(obs.shape, acs.shape)
         proc_obs = self._expand_to_ts_format(obs)
@@ -234,7 +256,11 @@ class ConstrainedCEM:
         
         if self.use_constraint and self.penalize_cost:
             cost_penalty = var.sqrt().norm(dim=2).max(0)[0].repeat_interleave(self.model.num_nets)
-            cost += self.penalty_lambda * cost_penalty
+            # if not self.tune_penalty:
+            #     penalty_lambda = self.penalty_lambda
+            # else:
+            #     penalty_lambda = self.log_penalty_lambda.exp().detach()
+            cost += self.penalty_lambda.to(cost_penalty.device) * cost_penalty
 
         return next_obs, reward, cost, done
 
