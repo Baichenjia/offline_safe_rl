@@ -4,6 +4,8 @@ from env.humanoid_circle import HumanoidCircleEnv
 from env.ant_circle_truncated import AntCircleTruncatedEnv
 from env.humanoid_circle_truncated import HumanoidCircleTruncatedEnv
 from env.pendulum_safety import PendulumSafetyEnv
+from env.no_termination import NoTermination
+from env.reacher_safety import ReacherSafetyEnv
 from env.pointmass import PointMass
 from gym.envs.registration import register
 
@@ -41,3 +43,14 @@ register(
     id='HumanoidCircleTruncated-v0',
     entry_point='env:HumanoidCircleTruncatedEnv',
 )
+
+register(
+    id='HopperNT-v0',
+    entry_point='env:NoTermination',
+    kwargs={'name': 'Hopper-v3'}
+    )
+
+register(
+    id='ReacherSafety-v0',
+    entry_point='env:ReacherSafetyEnv'
+    )

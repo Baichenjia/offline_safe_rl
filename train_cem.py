@@ -7,7 +7,8 @@ from sac import SAC, SACLag, CQLLag, ReplayMemory
 from cem import ConstrainedCEM
 
 from models import ProbEnsemble, PredictEnv
-# import safety_gym
+from imitation import Supervisor, split_data, train_learner
+import safety_gym
 import env
 from batch_utils import *
 from mbrl_utils import *
@@ -36,10 +37,13 @@ def readParser():
     parser.set_defaults(use_constraint=True)
     parser.add_argument('--cost_lim', type=float, default=0.,
         help='constraint threshold')
+    parser.add_argument('--plan_hor', type=int, default=30)
     # parser.add_argument('--penalty', type=float, default=1.0,
     #     help='reward penalty')
     # parser.add_argument('--cost_penalty', type=float, default=1.0,
     #     help='cost penalty')
+    parser.add_argument('--dart_iters', nargs='+', default=[5, 10, 15, 20, 25, 30, 35, 40])
+    parser.add_argument('--dart', action='store_true')
     parser.add_argument('--cost_size', type=int, default=1,
         help='number of cost functions')
     parser.add_argument('--learn_cost', dest='learn_cost', action='store_true')
@@ -101,6 +105,7 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
     reward_sum = 0
     environment_step = 0
     learner_update_step = 0
+    eps_idx = 0
 
     for epoch_step in tqdm(range(args.num_epoch)):
         epoch_rewards = [0]
@@ -111,8 +116,13 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
         if (epoch_step+1) % 100 == 0:
             agent_path = f'saved_policies/{args.env}-{args.run_name}-epoch{epoch_step+1}'
             agent.save_model(agent_path)
+
         for i in range(args.epoch_length):
             # plan CEM action
+            wandb.log({
+                "Train/episode_number": eps_idx,
+                "Train/episode_step": environment_step,
+                })
             cur_state, action, next_state, reward, done, info = env_sampler.sample(cem_agent)
             epoch_rewards[-1] += reward[0]
             epoch_costs[-1] += args.c_gamma ** i * reward[1]
@@ -128,6 +138,7 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
                 epoch_rewards.append(0)
                 epoch_costs.append(0)
                 epoch_lens.append(0)
+                eps_idx += 1
 
             if (i + 1) % args.model_train_freq == 0:
                 assert(args.algo not in ['sac', 'cql'])
@@ -184,6 +195,36 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
         })
 
 
+def learn(args, teacher, learner, env_sampler):
+    train_trajs = []
+    holdout_trajs = []
+    act_dim = np.prod(env_sampler.env.action_space.shape)
+    supervisor = Supervisor(act_dim, teacher, learner)
+    for itr in tqdm(range(args.dart_iters[-1])):
+        epoch_reward = 0
+        epoch_cost = 0
+        traj = []
+        for i in range(args.epoch_length):
+            cur_state, action, next_state, reward, done, info = env_sampler.sample(supervisor)
+            i_action = supervisor.i_action
+            epoch_reward += reward[0]
+            epoch_cost += reward[1] * args.gamma ** i
+            traj.append((cur_state, action, i_action))
+            if done:
+                break
+        train_traj, holdout_traj = split_data(traj)
+        train_trajs.append(train_traj) 
+        holdout_trajs.append(holdout_traj)
+        
+        wandb.log({
+            "Dart/supervisor_reward": epoch_reward,
+            "Dart/supervisor_cost": epoch_cost,
+        })
+        
+        if itr + 1 in args.dart_iters:
+            train_learner(args, learner, train_trajs, env_sampler)
+            supervisor.fit_cov(holdout_trajs[-5:])
+
 def main():
     args = readParser()
     if not args.use_constraint:
@@ -234,6 +275,7 @@ def main():
     predict_env = PredictEnv(env_model, args.env)
 
     cem_agent = ConstrainedCEM(env,
+                               plan_hor=args.plan_hor,
                                gamma=args.gamma,
                                cost_lim=args.cost_lim,
                                use_constraint=args.use_constraint,
@@ -263,6 +305,11 @@ def main():
 
     # Train
     train(args, env_sampler, predict_env, cem_agent, agent, env_pool, model_pool)
+    del env_pool
+    del model_pool
+
+    if args.dart:
+        learn(args, cem_agent, agent, env_sampler)
 
 
 if __name__ == '__main__':

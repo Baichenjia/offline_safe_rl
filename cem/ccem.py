@@ -13,6 +13,7 @@ class ConstrainedCEM:
                  env,
                  termination_function=None,
                  epoch_length=1000,
+                 plan_hor=30,
                  gamma=0.99,
                  c_gamma=0.99,
                  penalty_lambda=1,
@@ -48,7 +49,7 @@ class ConstrainedCEM:
         # cem optimization hyperparams
         self.per = 1
         self.npart = 20
-        self.plan_hor = 30 # Same
+        self.plan_hor = plan_hor # Same
         self.popsize = 500 # Same
         self.num_elites = 50 # Same
         self.max_iters = 5 # Same
@@ -64,6 +65,7 @@ class ConstrainedCEM:
         self.model = None
         self.step = 0
         self.log_period = epoch_length / 25
+        # self.log_period = 1
 
     def set_model(self, model):
         self.model = model
@@ -92,14 +94,15 @@ class ConstrainedCEM:
             samples = X.rvs(size=[self.popsize, self.plan_hor * self.dU]) * np.sqrt(constrained_var) + mean
             samples = samples.astype(np.float32)
 
-            rewards, costs= self.rollout(obs, samples)
-            epoch_ratio = np.ones_like(costs) * self.epoch_length / self.plan_hor
-            eps_lens = epoch_ratio * self.plan_hor
-            c_gamma_discount = (1 - self.c_gamma ** eps_lens) / (1 - self.c_gamma) / self.plan_hor
+            rewards, costs, eps_lens = self.rollout(obs, samples)
+            epoch_ratio = np.ones_like(eps_lens) * self.epoch_length / self.plan_hor
+            terminated = eps_lens != self.plan_hor
+            # epoch_ratio = terminated + ~terminated * epoch_ratio
+            c_gamma_discount = (1 - self.c_gamma ** (epoch_ratio * self.plan_hor)) / (1 - self.c_gamma) / self.plan_hor
             rewards = rewards * epoch_ratio
             costs = costs * c_gamma_discount
 
-            feasible_ids = (costs < self.cost_lim).nonzero()[0]
+            feasible_ids = ((costs < self.cost_lim) & (~terminated)).nonzero()[0]
             if self.use_constraint:
                 if feasible_ids.shape[0] >= self.num_elites:
                     elite_ids = feasible_ids[np.argsort(-rewards[feasible_ids])][:self.num_elites]
@@ -173,6 +176,7 @@ class ConstrainedCEM:
         rewards = torch.zeros(nopt, self.npart, device=self.device)
         costs = torch.zeros(nopt, self.npart, device=self.device)
         dones = torch.zeros(nopt, self.npart, dtype=bool, device=self.device)
+        length = torch.zeros(nopt, self.npart, device=self.device)
 
         for t in range(self.plan_hor):
             cur_acs = ac_seqs[t]
@@ -184,9 +188,10 @@ class ConstrainedCEM:
 
             dones = dones | done
             rewards += reward * ~dones
-            termination_penalty = cost.max()
+            termination_penalty = cost.mean()
             costs += cost * ~dones
             costs += termination_penalty * dones
+            length += ~dones
             cur_obs = cur_obs + obs_delta
 
             if t == 0:
@@ -212,7 +217,7 @@ class ConstrainedCEM:
         costs[costs != costs] = 1e6
 
         # TODO: both rewards and costs should be returned
-        return rewards.mean(dim=1).detach().cpu().numpy(), costs.mean(dim=1).detach().cpu().numpy()
+        return rewards.mean(dim=1).detach().cpu().numpy(), costs.mean(dim=1).detach().cpu().numpy(), length.mean(dim=1).detach().cpu().numpy()
 
     def optimize_penalty_lambda(self, epoch_cost):
         lamb_loss = -(self.log_penalty_lambda * (epoch_cost - self.cost_lim))
