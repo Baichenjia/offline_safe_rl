@@ -5,7 +5,7 @@ from gym.envs.mujoco import mujoco_env
 class ReacherSafetyEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def __init__(self):
         self.hazard_size = 0.05
-        self.hazard_number = 1
+        self.hazard_number = 3
         self.hazards = np.zeros(self.hazard_number * 2)
         utils.EzPickle.__init__(self)
         mujoco_env.MujocoEnv.__init__(self, 'reacher.xml', 2)
