@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import wandb
+import os
 
 def train_predict_model(args, env_pool, predict_env):
     # Get all samples from environment
@@ -18,6 +19,7 @@ def train_predict_model(args, env_pool, predict_env):
         model_path = f'saved_models/{args.env}-ensemble-h{args.hidden_size}.pt'
     else:
         model_path = f'saved_models/{args.env}-ensemble-nocost-h{args.hidden_size}.pt'
+    os.makedirs('saved_models', exist_ok=True)
     torch.save(predict_env.model.state_dict(), model_path)
 
 
