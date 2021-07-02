@@ -6,6 +6,7 @@ from env.humanoid_circle_truncated import HumanoidCircleTruncatedEnv
 from env.pendulum_safety import PendulumSafetyEnv
 from env.no_termination import NoTermination
 from env.reacher_safety import ReacherSafetyEnv
+from env.reacher_speed import ReacherSpeedEnv
 from env.pointmass import PointMass
 from gym.envs.registration import register
 
@@ -53,4 +54,9 @@ register(
 register(
     id='ReacherSafety-v0',
     entry_point='env:ReacherSafetyEnv'
+    )
+
+register(
+    id='ReacherSpeed-v0',
+    entry_point='env:ReacherSpeedEnv'
     )

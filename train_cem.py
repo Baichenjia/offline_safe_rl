@@ -2,6 +2,7 @@ import argparse
 import os
 from d4rl.infos import REF_MIN_SCORE, REF_MAX_SCORE
 
+from gym.wrappers import Monitor
 import wandb
 from sac import SAC, SACLag, CQLLag, ReplayMemory
 from cem import ConstrainedCEM
@@ -106,8 +107,14 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
     environment_step = 0
     learner_update_step = 0
     eps_idx = 0
+    env = env_sampler.env
 
     for epoch_step in tqdm(range(args.num_epoch)):
+        monitor = Monitor(env, f"videos/{args.run_name}", force=True)
+        if epoch_step % 10 == 0:
+            env_sampler.env = monitor
+            monitor.render()
+
         epoch_rewards = [0]
         epoch_costs = [0]
         epoch_lens = [0]
@@ -151,6 +158,9 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
         epoch_len = np.mean(epoch_lens)
         print("")
         print(f'Epoch {epoch_step} Train_Reward {epoch_reward:.2f} Train_Cost {epoch_cost:.2f} Train_Len {epoch_len:.2f}')
+
+        monitor.close()
+        env_sampler.env = env
 
         if args.tune_penalty:
             cem_agent.optimize_penalty_lambda(epoch_cost)
@@ -301,7 +311,9 @@ def main():
     wandb.init(project='safety-gym',
                group=args.env,
                name=run_name,
-               config=args)
+               config=args,
+               monitor_gym=True
+               )
 
     # Train
     train(args, env_sampler, predict_env, cem_agent, agent, env_pool, model_pool)
