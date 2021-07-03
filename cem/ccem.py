@@ -21,6 +21,7 @@ class ConstrainedCEM:
                  cost_lim=5,
                  tune_penalty=False,
                  use_constraint=True,
+                 use_icem=False,
                  use_colored_noise=False,
                  penalize_cost=True,
                  ):
@@ -42,7 +43,8 @@ class ConstrainedCEM:
         self.cost_lim = cost_lim
         self.epoch_length = epoch_length
         self.use_constraint = use_constraint
-        self.use_colored_noise = use_colored_noise
+        self.use_icem = use_icem
+        self.use_colored_noise = use_icem or use_colored_noise
         self.penalize_cost = penalize_cost
         self.device = 'cuda:0'
 
@@ -57,6 +59,9 @@ class ConstrainedCEM:
         self.epsilon = 0.001
         self.lb = np.tile(self.ac_lb, [self.plan_hor])
         self.ub = np.tile(self.ac_ub, [self.plan_hor])
+        self.decay = 1.25
+        self.elite_fraction = 0.3
+        self.elites = None
 
         self.ac_buf = np.array([]).reshape(0, self.dU)
         self.prev_sol = np.tile((self.ac_lb + self.ac_ub) / 2, [self.plan_hor])
@@ -91,8 +96,26 @@ class ConstrainedCEM:
             lb_dist, ub_dist = mean - self.lb, self.ub - mean
             constrained_var = np.minimum(np.minimum(np.square(lb_dist / 2), np.square(ub_dist / 2)), var)
 
-            samples = X.rvs(size=[self.popsize, self.plan_hor * self.dU]) * np.sqrt(constrained_var) + mean
+            if self.use_icem:
+                popsize = int(max(2 * self.num_elites, self.popsize * self.decay ** -t))
+            else:
+                popsize = self.popsize
+
+            if self.use_colored_noise:
+                noise = cn.powerlaw_psd_gaussian(self.noise_beta, [popsize, self.plan_hor * self.dU])
+            else:
+                noise = X.rvs(size=[popsize, self.plan_hor * self.dU])
+
+            samples = noise * np.sqrt(constrained_var) + mean
             samples = samples.astype(np.float32)
+            
+            if self.use_icem and self.elites is not None:
+                if t == 0:
+                    random_actions = (X.rvs(size=[self.num_elites, self.plan_hor * self.dU]) * np.sqrt(constrained_var) + mean)[:, -1:]
+                    self.elites = np.concatenate([self.elites[:, 1:], random_actions], axis=1)
+                elite_samples_id = np.random.choice(np.arange(self.num_elites), int(self.num_elites * self.elite_fraction))
+                elite_samples = self.elites[elite_samples_id]
+                samples = np.concatenate([samples, elite_samples])
 
             rewards, costs, eps_lens = self.rollout(obs, samples)
             epoch_ratio = np.ones_like(eps_lens) * self.epoch_length / self.plan_hor
@@ -110,9 +133,9 @@ class ConstrainedCEM:
                     elite_ids = np.argsort(costs)[:self.num_elites]
             else:
                 elite_ids = np.argsort(-rewards)[:self.num_elites]
-            elites = samples[elite_ids]
-            new_mean = np.mean(elites, axis=0)
-            new_var = np.var(elites, axis=0)
+            self.elites = samples[elite_ids]
+            new_mean = np.mean(self.elites, axis=0)
+            new_var = np.var(self.elites, axis=0)
 
             mean = self.alpha * mean + (1 - self.alpha) * new_mean
             var = self.alpha * var + (1 - self.alpha) * new_var
@@ -143,7 +166,10 @@ class ConstrainedCEM:
                         })
         
         self.step += 1
-        return mean
+        if self.use_icem:
+            return self.elites[0]
+        else:
+            return mean
 
     @torch.no_grad()
     def rollout(self, obs, ac_seqs):
@@ -238,12 +264,7 @@ class ConstrainedCEM:
 
         mean, var = self.model(inputs)
 
-        if self.use_colored_noise:
-            noise = torch.FloatTensor(cn.powerlaw_psd_gaussian(self.noise_beta, mean.shape)).to(self.device)
-        else:
-            noise = torch.randn_like(mean, device=self.device)
-
-        predictions = mean + noise * var.sqrt()
+        predictions = mean + torch.randn_like(mean, device=self.device)* var.sqrt()
 
         # TS Optimization: Remove additional dimension
         predictions = self._flatten_to_matrix(predictions)

@@ -32,6 +32,7 @@ def readParser():
     parser.add_argument('--penalty_lambda', type=float, default=1.0)
     parser.add_argument('--tune_penalty', action='store_true')
     parser.add_argument('--colored_noise', action='store_true')
+    parser.add_argument('--icem', action='store_true')
     parser.add_argument('--behavioral_cloning', action='store_true')
     parser.add_argument('--use_constraint', dest='feature', action='store_true')
     parser.add_argument('--no_use_constraint', dest='use_constraint', action='store_false')
@@ -290,6 +291,7 @@ def main():
                                cost_lim=args.cost_lim,
                                use_constraint=args.use_constraint,
                                use_colored_noise=args.colored_noise,
+                               use_icem=args.icem,
                                penalize_cost=args.penalize_cost,
                                tune_penalty=args.tune_penalty,
                                penalty_lambda=args.penalty_lambda,
