@@ -1,4 +1,5 @@
 from env.ant_truncated import AntTruncatedObsEnv
+from env.humanoid_truncated import HumanoidTruncatedObsEnv
 from env.ant_circle import AntCircleEnv
 from env.humanoid_circle import HumanoidCircleEnv
 from env.ant_circle_truncated import AntCircleTruncatedEnv
@@ -23,6 +24,11 @@ register(
 register(
     id='AntTruncated-v0',
     entry_point='env:AntTruncatedObsEnv',
+)
+
+register(
+    id='HumanoidTruncated-v0',
+    entry_point='env:HumanoidTruncatedObsEnv',
 )
 
 register(
