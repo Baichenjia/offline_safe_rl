@@ -234,16 +234,16 @@ class ProbEnsemble(nn.Module):
                 # break_train = self._save_best(epoch, val_losses)
 
             
-            wandb.log({"Model/loss": np.mean(losses),
-                       "Model/mse": np.mean(mses),
-                       "Model/logvar": np.mean(logvars),
-                       "Model/logvar_reg": np.mean(logvar_regs),
-                       "Model/decay": np.mean(decays),
-                       "Model/min_logvar": np.mean(min_logvars),
-                       "Model/max_logvar": np.mean(max_logvars),
-                       "Model/update_step": self.grad_update,
-                       "Model/rmse": rmse.detach().cpu().item(),
-                       })
+            # wandb.log({"Model/loss": np.mean(losses),
+            #            "Model/mse": np.mean(mses),
+            #            "Model/logvar": np.mean(logvars),
+            #            "Model/logvar_reg": np.mean(logvar_regs),
+            #            "Model/decay": np.mean(decays),
+            #            "Model/min_logvar": np.mean(min_logvars),
+            #            "Model/max_logvar": np.mean(max_logvars),
+            #            "Model/update_step": self.grad_update,
+            #            "Model/rmse": rmse.detach().cpu().item(),
+            #            })
 
             # if break_train:
             #     break

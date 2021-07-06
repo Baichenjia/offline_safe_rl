@@ -105,7 +105,7 @@ class ConstrainedCEM:
                 noise = cn.powerlaw_psd_gaussian(self.noise_beta, [popsize, self.plan_hor * self.dU])
             else:
                 noise = X.rvs(size=[popsize, self.plan_hor * self.dU])
-                noise = numpy.clip(noise, -2, 2)
+                noise = np.clip(noise, -2, 2)
 
             samples = noise * np.sqrt(constrained_var) + mean
             samples = samples.astype(np.float32)
@@ -226,18 +226,18 @@ class ConstrainedCEM:
                 start_reward = reward
                 start_cost = cost
 
-        if self.step % self.log_period == 0:
-            wandb.log({
-                    "ModelRollout/StartReward": start_reward.mean(),
-                    "ModelRollout/StartStdReward": start_reward.std(),
-                    "ModelRollout/StartCost": start_cost.mean(),
-                    "ModelRollout/StartStdCost": start_cost.std(),
-                    "ModelRollout/EndReward": reward.mean(),
-                    "ModelRollout/EndStdReward": reward.std(),
-                    "ModelRollout/EndCost": cost.mean(),
-                    "ModelRollout/EndStdCost": cost.std(),
-                    "ModelRollout/EndDone": dones.float().mean(),
-                    })
+        # if self.step % self.log_period == 0:
+        #     wandb.log({
+        #             "ModelRollout/StartReward": start_reward.mean(),
+        #             "ModelRollout/StartStdReward": start_reward.std(),
+        #             "ModelRollout/StartCost": start_cost.mean(),
+        #             "ModelRollout/StartStdCost": start_cost.std(),
+        #             "ModelRollout/EndReward": reward.mean(),
+        #             "ModelRollout/EndStdReward": reward.std(),
+        #             "ModelRollout/EndCost": cost.mean(),
+        #             "ModelRollout/EndStdCost": cost.std(),
+        #             "ModelRollout/EndDone": dones.float().mean(),
+        #             })
 
 
         # Replace nan with high cost
