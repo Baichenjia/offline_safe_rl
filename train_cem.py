@@ -9,7 +9,7 @@ from cem import ConstrainedCEM
 
 from models import ProbEnsemble, PredictEnv
 from imitation import Supervisor, split_data, train_learner
-import safety_gym
+# import safety_gym
 import env
 from batch_utils import *
 from mbrl_utils import *
@@ -27,6 +27,7 @@ def readParser():
         help='Safety Gym environment (default: Safexp-PointGoal1-v0)')
     parser.add_argument('--algo', default="sac",
         help='Must be one of mopo, gambol, sac, cql')
+    parser.add_argument('--monitor_gym', default=False, action='store_true')
     parser.add_argument('--random_policy', default=False, action='store_true')
     parser.add_argument('--penalize_cost', action='store_true')
     parser.add_argument('--penalty_lambda', type=float, default=1.0)
@@ -110,10 +111,11 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
     env = env_sampler.env
 
     for epoch_step in tqdm(range(args.num_epoch)):
-        monitor = Monitor(env, f"videos/{args.run_name}", force=True)
-        if epoch_step % 10 == 0:
-            env_sampler.env = monitor
-            monitor.render()
+        if args.monitor_gym:
+            monitor = Monitor(env, f"videos/{args.run_name}", force=True)
+            if epoch_step % 10 == 0:
+                env_sampler.env = monitor
+                monitor.render()
 
         epoch_rewards = [0]
         epoch_costs = [0]
@@ -159,7 +161,8 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
         print("")
         print(f'Epoch {epoch_step} Train_Reward {epoch_reward:.2f} Train_Cost {epoch_cost:.2f} Train_Len {epoch_len:.2f}')
 
-        monitor.close()
+        if args.monitor_gym:
+            monitor.close()
         env_sampler.env = env
 
         if args.tune_penalty:
@@ -241,7 +244,7 @@ def main():
         spec = 'noconstraint'
     elif args.use_constraint:
         if args.penalize_cost:
-            spec = f'P{args.penalty_lambda}-C{args.cost_lim}'
+            spec = f'P{args.penalty_lambda}-T{args.tune_penalty}-C{args.cost_lim}'
         else:
             spec = f'C{args.cost_lim}'
 
@@ -312,7 +315,7 @@ def main():
                group=args.env,
                name=run_name,
                config=args,
-               monitor_gym=True
+               monitor_gym=args.monitor_gym
                )
 
     # Train
