@@ -52,10 +52,17 @@ register(
 )
 
 register(
-    id='HopperNT-v0',
+    id='HopperNT-v3',
     entry_point='env:NoTermination',
     kwargs={'name': 'Hopper-v3'}
     )
+
+register(
+    id='Walker2dNT-v3',
+    entry_point='env:NoTermination',
+    kwargs={'name': 'Walker2d-v3'}
+    )
+
 
 register(
     id='ReacherSafety-v0',
