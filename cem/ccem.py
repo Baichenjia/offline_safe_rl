@@ -105,6 +105,7 @@ class ConstrainedCEM:
                 noise = cn.powerlaw_psd_gaussian(self.noise_beta, [popsize, self.plan_hor * self.dU])
             else:
                 noise = X.rvs(size=[popsize, self.plan_hor * self.dU])
+                noise = numpy.clip(noise, -2, 2)
 
             samples = noise * np.sqrt(constrained_var) + mean
             samples = samples.astype(np.float32)
@@ -116,11 +117,12 @@ class ConstrainedCEM:
                 elite_samples_id = np.random.choice(np.arange(self.num_elites), int(self.num_elites * self.elite_fraction))
                 elite_samples = self.elites[elite_samples_id]
                 samples = np.concatenate([samples, elite_samples])
+                if t == self.max_iters - 1:
+                    samples = np.concatenate([samples, mean[np.newaxis]])
 
             rewards, costs, eps_lens = self.rollout(obs, samples)
             epoch_ratio = np.ones_like(eps_lens) * self.epoch_length / self.plan_hor
             terminated = eps_lens != self.plan_hor
-            # epoch_ratio = terminated + ~terminated * epoch_ratio
             c_gamma_discount = (1 - self.c_gamma ** (epoch_ratio * self.plan_hor)) / (1 - self.c_gamma) / self.plan_hor
             rewards = rewards * epoch_ratio
             costs = costs * c_gamma_discount
@@ -166,10 +168,10 @@ class ConstrainedCEM:
                         })
         
         self.step += 1
-        if self.use_icem:
-            return self.elites[0]
-        else:
-            return mean
+        # Worsens performance
+        # if self.icem:
+        #     return self.elites[0]
+        return mean
 
     @torch.no_grad()
     def rollout(self, obs, ac_seqs):
