@@ -12,6 +12,8 @@ class ConstrainedCEM:
     def __init__(self,
                  env,
                  termination_function=None,
+                 reward_function=None,
+                 cost_function=None,
                  epoch_length=1000,
                  plan_hor=30,
                  gamma=0.99,
@@ -39,6 +41,8 @@ class ConstrainedCEM:
             self.penalty_lambda = self.log_penalty_lambda.exp()
 
         self.termination_function = termination_function
+        self.reward_function = reward_function
+        self.cost_function = cost_function
         self.noise_beta = noise_beta
         self.cost_lim = cost_lim
         self.epoch_length = epoch_length
@@ -103,9 +107,9 @@ class ConstrainedCEM:
 
             if self.use_colored_noise:
                 noise = cn.powerlaw_psd_gaussian(self.noise_beta, [popsize, self.plan_hor * self.dU])
+                noise = np.clip(noise, -2, 2)
             else:
                 noise = X.rvs(size=[popsize, self.plan_hor * self.dU])
-                noise = np.clip(noise, -2, 2)
 
             samples = noise * np.sqrt(constrained_var) + mean
             samples = samples.astype(np.float32)
@@ -273,19 +277,34 @@ class ConstrainedCEM:
 
         rewards, obs_delta = predictions[:, :self.model.reward_size], predictions[:, self.model.reward_size:]
 
-        reward = rewards[:, 0]
+        next_obs = (obs + obs_delta).detach().cpu().numpy()
+        obs = obs.detach().cpu().numpy()
+        acs = acs.detach().cpu().numpy()
+
+        reward = self.reward_function(
+            next_obs, acs
+        )
+
+        cost = self.cost_function(
+            next_obs, acs
+        )
+
+        if reward is None:
+            reward = rewards[:, 0]
+        else:
+            reward = torch.from_numpy(reward).to(self.device)
 
         done = self.termination_function(
-            obs.detach().cpu().numpy(),
-            acs.detach().cpu().numpy(),
-            (obs + obs_delta).detach().cpu().numpy(),
+            obs, acs, next_obs
             )
         done = torch.from_numpy(done).to(self.device)
 
         if not self.use_constraint and rewards.shape[1] < 2:
             cost = torch.zeros_like(reward)
-        else:
+        elif cost is None:
             cost = rewards[:, 1]
+        else:
+            cost = torch.from_numpy(cost).to(self.device)
         
         if self.use_constraint and self.penalize_cost:
             cost_penalty = var.sqrt().norm(dim=2).max(0)[0].repeat_interleave(self.model.num_nets)

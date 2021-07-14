@@ -7,9 +7,10 @@ import wandb
 from sac import SAC, SACLag, CQLLag, ReplayMemory
 from cem import ConstrainedCEM
 
+from config import create_config
 from models import ProbEnsemble, PredictEnv
 from imitation import Supervisor, split_data, train_learner
-# import safety_gym
+import safety_gym
 import env
 from batch_utils import *
 from mbrl_utils import *
@@ -26,14 +27,12 @@ def readParser():
     parser.add_argument('--env', default="Safexp-PointGoal1-v0",
         help='Safety Gym environment (default: Safexp-PointGoal1-v0)')
     parser.add_argument('--algo', default="sac",
-        help='Must be one of mopo, gambol, sac, cql')
+        help='Must be one of mopo, gambol, sac, cql, cem, icem, random')
     parser.add_argument('--monitor_gym', default=False, action='store_true')
-    parser.add_argument('--random_policy', default=False, action='store_true')
     parser.add_argument('--penalize_cost', action='store_true')
     parser.add_argument('--penalty_lambda', type=float, default=1.0)
     parser.add_argument('--tune_penalty', action='store_true')
     parser.add_argument('--colored_noise', action='store_true')
-    parser.add_argument('--icem', action='store_true')
     parser.add_argument('--behavioral_cloning', action='store_true')
     parser.add_argument('--use_constraint', dest='feature', action='store_true')
     parser.add_argument('--no_use_constraint', dest='use_constraint', action='store_false')
@@ -115,7 +114,9 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
         if args.monitor_gym:
             monitor = Monitor(env, f"videos/{args.run_name}", force=True)
             if epoch_step % 10 == 0:
+                env.reset()
                 env_sampler.env = monitor
+                env_sampler.current_state = None
                 monitor.render()
 
         epoch_rewards = [0]
@@ -129,10 +130,10 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
 
         for i in range(args.epoch_length):
             # plan CEM action
-            wandb.log({
-                "Train/episode_number": eps_idx,
-                "Train/episode_step": environment_step,
-                })
+            # wandb.log({
+            #     "Train/episode_number": eps_idx,
+            #     "Train/episode_step": environment_step,
+            #     })
             cur_state, action, next_state, reward, done, info = env_sampler.sample(cem_agent)
             epoch_rewards[-1] += reward[0]
             epoch_costs[-1] += args.c_gamma ** i * reward[1]
@@ -153,7 +154,7 @@ def train(args, env_sampler, predict_env, cem_agent, agent, env_pool, expert_poo
             if (i + 1) % args.model_train_freq == 0:
                 assert(args.algo not in ['sac', 'cql'])
                 train_predict_model(args, env_pool, predict_env)
-                if not args.random_policy:
+                if args.algo != "random":
                     cem_agent.set_model(predict_env.model)
 
         epoch_reward = np.mean(epoch_rewards)
@@ -241,19 +242,22 @@ def learn(args, teacher, learner, env_sampler):
 
 def main():
     args = readParser()
+    spec = []
     if not args.use_constraint:
-        spec = 'noconstraint'
-    elif args.use_constraint:
+        spec.append('NoConstraint')
+    else:
         if args.penalize_cost:
-            spec = f'P{args.penalty_lambda}-T{args.tune_penalty}-C{args.cost_lim}'
-        else:
-            spec = f'C{args.cost_lim}'
+            spec.extend([f'P{args.penalty_lambda}', f'T{args.tune_penalty}'])
+        spec.append(f'C{args.cost_lim}')
+    spec = '-'.join(spec)
 
-    run_name = f"{args.algo}-{spec}-{args.seed}"
+    run_name = f"{args.algo}-{spec}-{args.env}-{args.seed}"
     args.run_name = run_name
 
     # Initial environment
-    env = gym.make(args.env)
+    config = create_config(args.env)
+
+    env = config.env
 
     args.gamma = 0.99
     args.c_gamma = 0.99
@@ -294,11 +298,13 @@ def main():
                                cost_lim=args.cost_lim,
                                use_constraint=args.use_constraint,
                                use_colored_noise=args.colored_noise,
-                               use_icem=args.icem,
+                               use_icem=args.algo == "icem",
                                penalize_cost=args.penalize_cost,
                                tune_penalty=args.tune_penalty,
                                penalty_lambda=args.penalty_lambda,
-                               termination_function = predict_env.termination_fn
+                               termination_function = config.termination_function,
+                               reward_function=config.reward_function,
+                               cost_function=config.cost_function,
                                )
 
     # only can set tune_penalty to true if CCEM is penalizing cost

@@ -6,6 +6,8 @@ from env.ant_circle_truncated import AntCircleTruncatedEnv
 from env.humanoid_circle_truncated import HumanoidCircleTruncatedEnv
 from env.pendulum_safety import PendulumSafetyEnv
 from env.no_termination import NoTermination
+from env.hopper_nt import HopperNT
+from env.walker2d_nt import Walker2dNT
 from env.reacher_safety import ReacherSafetyEnv
 from env.reacher_speed import ReacherSpeedEnv
 from env.pointmass import PointMass
@@ -53,15 +55,25 @@ register(
 
 register(
     id='HopperNT-v3',
-    entry_point='env:NoTermination',
-    kwargs={'name': 'Hopper-v3'}
+    entry_point='env:HopperNT',
     )
 
 register(
     id='Walker2dNT-v3',
-    entry_point='env:NoTermination',
-    kwargs={'name': 'Walker2d-v3'}
+    entry_point='env:Walker2dNT',
     )
+
+# register(
+#     id='HopperNT-v3',
+#     entry_point='env:NoTermination',
+#     kwargs={'name': 'Hopper-v3'}
+#     )
+
+# register(
+#     id='Walker2dNT-v3',
+#     entry_point='env:NoTermination',
+#     kwargs={'name': 'Walker2d-v3'}
+#     )
 
 
 register(

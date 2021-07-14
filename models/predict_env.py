@@ -8,6 +8,13 @@ class PredictEnv:
         self.model = model
         self.env_name = env_name
 
+    def reward_fn(self, obs, act):
+        prefix = self.env_name.split('-')[0]
+        if self.env_name == "Reacher-v2" or prefix.lower() == 'reacher':
+            dist = obs[:, -3:]
+            return -np.linalg.norm(dist, axis=1) - np.square(act).sum(axis=1)
+        return None
+
     def termination_fn(self, obs, act, next_obs):
         prefix = self.env_name.split('-')[0]
         # TODO: need to figure out how to implement these for safety-gym environments

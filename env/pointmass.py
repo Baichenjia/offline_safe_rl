@@ -124,7 +124,7 @@ class PointMass(gym.Env):
 
         return np.array(self.state), reward, done, {}
 
-    def render(self):
+    def render(self, mode=None):
         # Step 1: Initialize pygame if necessary
         if not self.pygame_init:
             pygame.init()
